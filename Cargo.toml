@@ -20,7 +20,7 @@ path = "tests/progress.rs"
 trybuild = { version = "1.0", features = ["diff"] }
 
 actix-web = "4.1.0"
-sqlx = { version = "0.6", default-features = false, features = ["runtime-actix-rustls", "mysql"] }
+sqlx = { version = "0.6", default-features = false, features = ["runtime-actix-rustls", "sqlite"] }
 opentelemetry = { version = "0.17", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
 opentelemetry-semantic-conventions = "0.9"
 opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio-current-thread"] }

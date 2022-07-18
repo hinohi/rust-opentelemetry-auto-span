@@ -1,5 +1,5 @@
 use quote::quote;
-use syn::{parse_macro_input, visit_mut::VisitMut, Expr, ItemFn};
+use syn::{parse_macro_input, visit_mut::VisitMut, Expr, ExprAwait, ExprCall, ItemFn};
 
 #[proc_macro_attribute]
 pub fn auto_span(
@@ -7,10 +7,9 @@ pub fn auto_span(
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let mut input = parse_macro_input!(item as ItemFn);
-    Visitor.visit_item_fn_mut(&mut input);
+    AwaitVisitor::new().visit_item_fn_mut(&mut input);
     insert_tracer(&mut input);
     let token = quote! {#input};
-    println!("{}", token);
     token.into()
 }
 
@@ -23,7 +22,7 @@ fn insert_tracer(i: &mut ItemFn) {
             use opentelemetry::trace::{Tracer, Span};
             let __tracer = opentelemetry::global::tracer(TRACE_NAME);
             let __span = __tracer.start(#func_span_name);
-            #(#stmts )*
+            #(#stmts)*
         }
     })
     .unwrap();
@@ -35,22 +34,41 @@ fn insert_tracer(i: &mut ItemFn) {
     }
 }
 
-struct Visitor;
+struct AwaitVisitor;
 
-impl VisitMut for Visitor {
+struct SqlxVisitor {
+    mutate: bool,
+}
+
+impl AwaitVisitor {
+    fn new() -> AwaitVisitor {
+        AwaitVisitor
+    }
+
+    fn handle_sqlx(&self, expr_await: &mut ExprAwait) -> bool {
+        let mut sqlx_visitor = SqlxVisitor::new();
+        sqlx_visitor.visit_expr_await_mut(expr_await);
+        sqlx_visitor.mutate
+    }
+}
+
+impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         match i {
-            Expr::Call(_) | Expr::MethodCall(_) | Expr::Try(_) => {
-                let sql = find_sqlx_query(i).expect("Unsupported SQL style");
-                if let Some(sql) = sql {
+            Expr::Await(expr) => {
+                if self.handle_sqlx(expr) {
+                    let attrs = &expr.attrs;
+                    let base = &expr.base;
                     let t = quote! {
                         {
                             let mut __span = __tracer.start(concat!("db:", line!()));
-                            __span.set_attribute(opentelemetry::KeyValue::new("sql", #sql));
-                            #i
-                        }
+                            #(#attrs)*
+                            #base
+                        }.await
                     };
                     *i = syn::parse2(t).unwrap();
+                } else {
+                    syn::visit_mut::visit_expr_await_mut(self, expr);
                 }
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
@@ -58,64 +76,49 @@ impl VisitMut for Visitor {
     }
 }
 
-fn find_sqlx_query(i: &Expr) -> Result<Option<Expr>, ()> {
-    match i {
-        Expr::Array(_) => Ok(None),
-        Expr::Assign(_) => Ok(None),
-        Expr::AssignOp(_) => Ok(None),
-        Expr::Async(_) => Ok(None),
-        Expr::Await(expr) => find_sqlx_query(&expr.base),
-        Expr::Binary(_) => Ok(None),
-        Expr::Block(_) => Ok(None),
-        Expr::Box(_) => Ok(None),
-        Expr::Break(_) => Ok(None),
-        Expr::Call(expr) => {
-            if !is_sqlx_query(&expr.func) {
-                return Ok(None);
-            }
-            if expr.args.is_empty() {
-                return Err(());
-            }
-            if let Some(a) = expr.args.first() {
-                match a {
-                    Expr::Lit(expr) => Ok(Some(Expr::Lit(expr.clone()))),
-                    _ => Err(()),
-                }
-            } else {
-                Err(())
-            }
+impl SqlxVisitor {
+    fn new() -> SqlxVisitor {
+        SqlxVisitor { mutate: false }
+    }
+
+    fn try_sqlx(&self, call: &ExprCall) -> Option<Expr> {
+        if !is_sqlx_query(&call.func) {
+            return None;
         }
-        Expr::Cast(_) => Ok(None),
-        Expr::Closure(_) => Ok(None),
-        Expr::Continue(_) => Ok(None),
-        Expr::Field(_) => Ok(None),
-        Expr::ForLoop(_) => Ok(None),
-        Expr::Group(_) => Ok(None),
-        Expr::If(_) => Ok(None),
-        Expr::Index(_) => Ok(None),
-        Expr::Let(_) => Ok(None),
-        Expr::Lit(_) => Ok(None),
-        Expr::Loop(_) => Ok(None),
-        Expr::Macro(_) => Ok(None),
-        Expr::Match(_) => Ok(None),
-        Expr::MethodCall(expr) => find_sqlx_query(&expr.receiver),
-        Expr::Paren(_) => Ok(None),
-        Expr::Path(_) => Ok(None),
-        Expr::Range(_) => Ok(None),
-        Expr::Reference(_) => Ok(None),
-        Expr::Repeat(_) => Ok(None),
-        Expr::Return(_) => Ok(None),
-        Expr::Struct(_) => Ok(None),
-        Expr::Try(expr) => find_sqlx_query(&expr.expr),
-        Expr::TryBlock(_) => Ok(None),
-        Expr::Tuple(_) => Ok(None),
-        Expr::Type(_) => Ok(None),
-        Expr::Unary(_) => Ok(None),
-        Expr::Unsafe(_) => Ok(None),
-        Expr::Verbatim(_) => Ok(None),
-        Expr::While(_) => Ok(None),
-        Expr::Yield(_) => Ok(None),
-        _ => Ok(None),
+        if let Some(a) = call.args.first() {
+            match a {
+                Expr::Lit(_) => Some(a.clone()),
+                Expr::Path(_) => {
+                    let t = quote! {&#a};
+                    Some(syn::parse2(t).unwrap())
+                }
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl VisitMut for SqlxVisitor {
+    fn visit_expr_mut(&mut self, i: &mut Expr) {
+        let sql = match i {
+            Expr::Call(expr) => self.try_sqlx(expr),
+            Expr::Await(_) => return,
+            _ => None,
+        };
+        if let Some(sql) = sql {
+            let t = quote! {
+                {
+                    __span.set_attribute(opentelemetry::KeyValue::new("sql", #sql));
+                    #i
+                }
+            };
+            *i = syn::parse2(t).unwrap();
+            self.mutate = true;
+        } else {
+            syn::visit_mut::visit_expr_mut(self, i);
+        }
     }
 }
 

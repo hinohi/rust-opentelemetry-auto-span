@@ -1,5 +1,7 @@
 use rust_opentelemetry_auto_span::auto_span;
 
+const TRACE_NAME: &str = "a";
+
 #[auto_span]
 fn test_func(a: i32) -> i32 {
     let b = a.pow(2);
@@ -7,5 +9,5 @@ fn test_func(a: i32) -> i32 {
 }
 
 fn main() {
-    println!("{}", test_func(21));
+    let _ = test_func(21);
 }

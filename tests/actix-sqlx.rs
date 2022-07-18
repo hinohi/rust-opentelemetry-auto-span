@@ -22,17 +22,49 @@ impl actix_web::ResponseError for SqlxError {
     }
 }
 
-#[get("/hello/{name}")]
+async fn fetch_one_scalar<'q, 'c, O>(
+    query: sqlx::query::QueryScalar<'q, sqlx::Sqlite, O, sqlx::sqlite::SqliteArguments<'q>>,
+    tx: &mut sqlx::Transaction<'c, sqlx::Sqlite>,
+) -> sqlx::Result<O>
+where
+    O: 'q + Send + Unpin,
+    (O,): for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow>,
+{
+    let mut r: Vec<O> = query.fetch_all(tx).await?;
+    Ok(r.pop().unwrap())
+}
+
+#[get("/nest")]
 #[auto_span]
-async fn greet(
-    name: web::Path<String>,
-    pool: web::Data<sqlx::MySqlPool>,
-) -> actix_web::Result<String> {
-    let _r: Vec<i32> = sqlx::query_scalar("SELECT id")
+async fn nest(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
+    let mut tx = pool.begin().await.map_err(SqlxError)?;
+    let r: i32 = fetch_one_scalar(sqlx::query_scalar("SELECT b"), &mut tx)
+        .await
+        .map_err(SqlxError)?;
+    Ok(format!("r={}", r))
+}
+
+#[get("/test-if")]
+#[auto_span]
+async fn test_if(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
+    let r: Vec<i32> = if true {
+        sqlx::query_scalar("SELECT b").fetch_all(pool.as_ref())
+    } else {
+        sqlx::query_scalar("SELECT a").fetch_all(pool.as_ref())
+    }
+    .await
+    .map_err(SqlxError)?;
+    Ok(format!("r={:?}", r))
+}
+
+#[get("/hello")]
+#[auto_span]
+async fn greet(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
+    let r: Vec<i32> = sqlx::query_scalar("SELECT id")
         .fetch_all(pool.as_ref())
         .await
         .map_err(SqlxError)?;
-    Ok(format!("Hello {}!", name.into_inner()))
+    Ok(format!("Hello {:?}!", r))
 }
 
 #[actix_web::main]
@@ -40,22 +72,19 @@ async fn main() -> std::io::Result<()> {
     global::set_text_map_propagator(TraceContextPropagator::new());
     let _tracer = opentelemetry_jaeger::new_pipeline()
         .with_service_name(TRACE_NAME)
-        .install_batch(TokioCurrentThread)
-        .expect("pipeline install error");
+        .install_batch(TokioCurrentThread);
+    // do not connect for test
 
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(10)
-        .connect("")
-        .await
-        .expect("failed to connect db");
+    let pool = sqlx::sqlite::SqlitePool::connect(":memory:").await.unwrap();
 
-    let server = actix_web::HttpServer::new(move || {
+    let _server = actix_web::HttpServer::new(move || {
         actix_web::App::new()
             .app_data(web::Data::new(pool.clone()))
             .wrap(RequestTracing::new())
             .service(greet)
+            .service(test_if)
+            .service(nest)
     });
-    server.bind(("0.0.0.0", 3000))?.run().await?;
     global::shutdown_tracer_provider();
     Ok(())
 }
