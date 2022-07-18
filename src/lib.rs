@@ -83,14 +83,11 @@ impl VisitMut for AwaitVisitor {
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
-                    let attrs = &expr.attrs;
-                    let base = &expr.base;
                     let t = quote! {
                         {
                             let mut __span = __tracer.start(concat!("db:", line!()));
-                            #(#attrs)*
-                            #base
-                        }.await
+                            #expr
+                        }
                     };
                     *i = syn::parse2(t).unwrap();
                 } else {
