@@ -1,15 +1,41 @@
+use std::marker::PhantomData;
+
 use quote::quote;
-use syn::{parse_macro_input, visit_mut::VisitMut, Expr, ExprAwait, ExprCall, ItemFn};
+use syn::{
+    parse_macro_input, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr, ExprAwait, ExprCall,
+    ItemFn, Meta,
+};
 
 #[proc_macro_attribute]
 pub fn auto_span(
-    _attr: proc_macro::TokenStream,
+    attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
+    let debug = {
+        let attrs = parse_macro_input!(attr as AttributeArgs);
+        let mut visitor = AttrVisitor::new();
+        for attr in attrs.iter() {
+            visitor.visit_nested_meta(attr);
+        }
+        visitor.debug
+    };
+
     let mut input = parse_macro_input!(item as ItemFn);
     AwaitVisitor::new().visit_item_fn_mut(&mut input);
     insert_tracer(&mut input);
     let token = quote! {#input};
+
+    if debug {
+        let mut target = std::path::PathBuf::from(
+            std::env::var("CARGO_TARGET_DIR").unwrap_or("/tmp".to_owned()),
+        );
+        target.push("auto-span");
+        std::fs::create_dir_all(&target).expect(&format!("Fail to mkdir: {:?}", target));
+        target.push(format!("{}.rs", input.sig.ident));
+        std::fs::write(&target, format!("{}", token))
+            .expect(&format!("Fail to write token to {:?}", target));
+    }
+
     token.into()
 }
 
@@ -146,5 +172,38 @@ fn is_sqlx_query(func: &Expr) -> bool {
             false
         }
         _ => false,
+    }
+}
+
+struct AttrVisitor<'ast> {
+    debug: bool,
+    _phantom: PhantomData<&'ast ()>,
+}
+
+impl<'ast> AttrVisitor<'ast> {
+    fn new() -> AttrVisitor<'ast> {
+        AttrVisitor {
+            debug: false,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
+    fn visit_meta(&mut self, i: &'ast Meta) {
+        match i {
+            Meta::Path(path) => {
+                let mut it = path.segments.iter();
+                let debug = it
+                    .next()
+                    .and_then(|s| Some(s.ident == "debug"))
+                    .unwrap_or(false);
+                if debug && it.next().is_none() {
+                    self.debug = true;
+                }
+            }
+            Meta::NameValue(_) => (),
+            Meta::List(meta_list) => self.visit_meta_list(meta_list),
+        }
     }
 }
