@@ -1,0 +1,27 @@
+[package]
+name = "rust-opentelemetry-auto-span"
+version = "0.1.0"
+edition = "2021"
+autotests = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full", "extra-traits", "visit-mut"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[[test]]
+name = "tests"
+path = "tests/progress.rs"
+
+[dev-dependencies]
+trybuild = { version = "1.0", features = ["diff"] }
+
+actix-web = "4.1.0"
+sqlx = { version = "0.6", default-features = false, features = ["runtime-actix-rustls", "mysql"] }
+opentelemetry = { version = "0.17", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
+opentelemetry-semantic-conventions = "0.9"
+opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio-current-thread"] }
+actix-web-opentelemetry = { git = "https://github.com/OutThereLabs/actix-web-opentelemetry" }
