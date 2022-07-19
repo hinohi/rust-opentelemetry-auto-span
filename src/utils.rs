@@ -1,10 +1,10 @@
 use syn::Path;
 
-pub struct PathPat {
+pub(crate) struct PathPat {
     segments: Vec<Vec<String>>,
 }
 
-pub(crate) fn match_path<P: Into<PathPat>>(path: &Path, pat: P) -> bool {
+pub(crate) fn path_match<P: Into<PathPat>>(path: &Path, pat: P) -> bool {
     let pat = pat.into();
     let mut seg = path.segments.iter();
     let mut pat = pat.segments.iter();
@@ -15,7 +15,26 @@ pub(crate) fn match_path<P: Into<PathPat>>(path: &Path, pat: P) -> bool {
             (None, None) => break true,
             (Some(_), None) | (None, Some(_)) => break false,
             (Some(s), Some(p)) => {
-                if p.iter().all(|p| s.ident != p) {
+                if !p.iter().any(|p| p == "*" || s.ident == p) {
+                    break false;
+                }
+            }
+        }
+    }
+}
+
+pub(crate) fn path_starts_with<P: Into<PathPat>>(path: &Path, pat: P) -> bool {
+    let pat = pat.into();
+    let mut seg = path.segments.iter();
+    let mut pat = pat.segments.iter();
+    loop {
+        let s = seg.next();
+        let p = pat.next();
+        match (s, p) {
+            (None, None) | (Some(_), None) => break true,
+            (None, Some(_)) => break false,
+            (Some(s), Some(p)) => {
+                if !p.iter().any(|p| p == "*" || s.ident == p) {
                     break false;
                 }
             }

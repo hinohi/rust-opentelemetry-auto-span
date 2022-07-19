@@ -8,7 +8,7 @@ use syn::{
     ItemFn, Meta,
 };
 
-use crate::utils::match_path;
+use crate::utils::{path_match, path_starts_with};
 
 #[proc_macro_attribute]
 pub fn auto_span(
@@ -81,15 +81,25 @@ struct SqlxVisitor {
     mutate: bool,
 }
 
+struct ReqwestVisitor {
+    mutate: bool,
+}
+
 impl AwaitVisitor {
     fn new() -> AwaitVisitor {
         AwaitVisitor
     }
 
     fn handle_sqlx(&self, expr_await: &mut ExprAwait) -> bool {
-        let mut sqlx_visitor = SqlxVisitor::new();
-        sqlx_visitor.visit_expr_await_mut(expr_await);
-        sqlx_visitor.mutate
+        let mut visitor = SqlxVisitor::new();
+        visitor.visit_expr_await_mut(expr_await);
+        visitor.mutate
+    }
+
+    fn handle_reqwest(&self, expr_await: &mut ExprAwait) -> bool {
+        let mut visitor = ReqwestVisitor::new();
+        visitor.visit_expr_await_mut(expr_await);
+        visitor.mutate
     }
 }
 
@@ -101,6 +111,14 @@ impl VisitMut for AwaitVisitor {
                     let t = quote! {
                         {
                             let mut __span = __tracer.start(concat!("db:", line!()));
+                            #expr
+                        }
+                    };
+                    *i = syn::parse2(t).unwrap();
+                } else if self.handle_reqwest(expr) {
+                    let t = quote! {
+                        {
+                            let mut __span = __tracer.start(concat!("http:", line!()));
                             #expr
                         }
                     };
@@ -170,7 +188,42 @@ fn is_sqlx_query(func: &Expr) -> bool {
         "query_with",
     ];
     match func {
-        Expr::Path(path) => match_path(&path.path, vec![vec!["sqlx"], query_functions]),
+        Expr::Path(path) => path_match(&path.path, vec![vec!["sqlx"], query_functions]),
+        _ => false,
+    }
+}
+
+impl ReqwestVisitor {
+    fn new() -> ReqwestVisitor {
+        ReqwestVisitor { mutate: false }
+    }
+}
+
+impl VisitMut for ReqwestVisitor {
+    fn visit_expr_mut(&mut self, i: &mut Expr) {
+        let b = match i {
+            Expr::Call(expr) => is_reqwest(&expr.func),
+            Expr::Await(_) => return,
+            _ => false,
+        };
+        if b {
+            self.mutate = true;
+        } else {
+            syn::visit_mut::visit_expr_mut(self, i);
+        }
+    }
+}
+
+fn is_reqwest(func: &Expr) -> bool {
+    match func {
+        Expr::Path(path) => {
+            eprintln!(
+                "{} {}",
+                quote!(#path),
+                path_starts_with(&path.path, vec!["reqwest", "*"])
+            );
+            path_starts_with(&path.path, vec!["reqwest", "*"])
+        }
         _ => false,
     }
 }
@@ -201,9 +254,9 @@ impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
     fn visit_meta(&mut self, i: &'ast Meta) {
         match i {
             Meta::Path(path) => {
-                if match_path(&path, "debug") {
+                if path_match(&path, "debug") {
                     self.opt.debug = true;
-                } else if match_path(&path, "no_func_span") {
+                } else if path_match(&path, "no_func_span") {
                     self.opt.func_span = false;
                 } else {
                     panic!("Unexpected option: {:?}", path);
