@@ -1,3 +1,5 @@
+mod utils;
+
 use std::marker::PhantomData;
 
 use quote::quote;
@@ -6,26 +8,28 @@ use syn::{
     ItemFn, Meta,
 };
 
+use crate::utils::match_path;
+
 #[proc_macro_attribute]
 pub fn auto_span(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let debug = {
+    let opt = {
         let attrs = parse_macro_input!(attr as AttributeArgs);
         let mut visitor = AttrVisitor::new();
         for attr in attrs.iter() {
             visitor.visit_nested_meta(attr);
         }
-        visitor.debug
+        visitor.opt
     };
 
     let mut input = parse_macro_input!(item as ItemFn);
     AwaitVisitor::new().visit_item_fn_mut(&mut input);
-    insert_tracer(&mut input);
+    insert_tracer(&mut input, opt.func_span);
     let token = quote! {#input};
 
-    if debug {
+    if opt.debug {
         let mut target = std::path::PathBuf::from(
             std::env::var("CARGO_TARGET_DIR").unwrap_or("/tmp".to_owned()),
         );
@@ -39,16 +43,27 @@ pub fn auto_span(
     token.into()
 }
 
-fn insert_tracer(i: &mut ItemFn) {
+fn insert_tracer(i: &mut ItemFn, with_span: bool) {
     let func_span_name = format!("fn:{}", i.sig.ident);
     let stmts = &i.block.stmts;
-    let body: Expr = syn::parse2(quote! {
-        {
-            #[allow(unused_imports)]
-            use opentelemetry::trace::{Tracer, Span};
-            let __tracer = opentelemetry::global::tracer(TRACE_NAME);
-            let __span = __tracer.start(#func_span_name);
-            #(#stmts)*
+    let body: Expr = syn::parse2(if with_span {
+        quote! {
+            {
+                #[allow(unused_imports)]
+                use opentelemetry::trace::{Tracer, Span};
+                let __tracer = opentelemetry::global::tracer(TRACE_NAME);
+                let __span = __tracer.start(#func_span_name);
+                #(#stmts)*
+            }
+        }
+    } else {
+        quote! {
+            {
+                #[allow(unused_imports)]
+                use opentelemetry::trace::{Tracer, Span};
+                let __tracer = opentelemetry::global::tracer(TRACE_NAME);
+                #(#stmts)*
+            }
         }
     })
     .unwrap();
@@ -146,7 +161,7 @@ impl VisitMut for SqlxVisitor {
 }
 
 fn is_sqlx_query(func: &Expr) -> bool {
-    let query_functions = [
+    let query_functions = vec![
         "query",
         "query_as",
         "query_as_with",
@@ -155,32 +170,28 @@ fn is_sqlx_query(func: &Expr) -> bool {
         "query_with",
     ];
     match func {
-        Expr::Path(path) => {
-            let mut it = path.path.segments.iter();
-            if let Some(s) = it.next() {
-                if s.ident == "sqlx" {
-                    if let Some(s) = it.next() {
-                        if query_functions.iter().any(|q| s.ident == q) {
-                            return it.next().is_none();
-                        }
-                    }
-                }
-            }
-            false
-        }
+        Expr::Path(path) => match_path(&path.path, vec![vec!["sqlx"], query_functions]),
         _ => false,
     }
 }
 
 struct AttrVisitor<'ast> {
-    debug: bool,
+    opt: Opt,
     _phantom: PhantomData<&'ast ()>,
+}
+
+struct Opt {
+    func_span: bool,
+    debug: bool,
 }
 
 impl<'ast> AttrVisitor<'ast> {
     fn new() -> AttrVisitor<'ast> {
         AttrVisitor {
-            debug: false,
+            opt: Opt {
+                debug: false,
+                func_span: true,
+            },
             _phantom: PhantomData,
         }
     }
@@ -190,13 +201,12 @@ impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
     fn visit_meta(&mut self, i: &'ast Meta) {
         match i {
             Meta::Path(path) => {
-                let mut it = path.segments.iter();
-                let debug = it
-                    .next()
-                    .and_then(|s| Some(s.ident == "debug"))
-                    .unwrap_or(false);
-                if debug && it.next().is_none() {
-                    self.debug = true;
+                if match_path(&path, "debug") {
+                    self.opt.debug = true;
+                } else if match_path(&path, "no_func_span") {
+                    self.opt.func_span = false;
+                } else {
+                    panic!("Unexpected option: {:?}", path);
                 }
             }
             Meta::NameValue(_) => (),
