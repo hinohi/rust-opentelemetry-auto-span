@@ -143,11 +143,7 @@ impl SqlxVisitor {
         }
         if let Some(a) = call.args.first() {
             match a {
-                Expr::Lit(_) => Some(a.clone()),
-                Expr::Path(_) => {
-                    let t = quote! {&#a};
-                    Some(syn::parse2(t).unwrap())
-                }
+                Expr::Lit(_) | Expr::Path(_) => Some(a.clone()),
                 _ => None,
             }
         } else {
