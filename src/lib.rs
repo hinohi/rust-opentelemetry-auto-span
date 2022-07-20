@@ -31,13 +31,12 @@ pub fn auto_span(
 
     if opt.debug {
         let mut target = std::path::PathBuf::from(
-            std::env::var("CARGO_TARGET_DIR").unwrap_or("/tmp".to_owned()),
+            std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "/tmp".to_owned()),
         );
         target.push("auto-span");
-        std::fs::create_dir_all(&target).expect(&format!("Fail to mkdir: {:?}", target));
+        std::fs::create_dir_all(&target).unwrap();
         target.push(format!("{}.rs", input.sig.ident));
-        std::fs::write(&target, format!("{}", token))
-            .expect(&format!("Fail to write token to {:?}", target));
+        std::fs::write(&target, format!("{}", token)).unwrap();
     }
 
     token.into()
@@ -250,9 +249,9 @@ impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
     fn visit_meta(&mut self, i: &'ast Meta) {
         match i {
             Meta::Path(path) => {
-                if path_match(&path, "debug") {
+                if path_match(path, "debug") {
                     self.opt.debug = true;
-                } else if path_match(&path, "no_func_span") {
+                } else if path_match(path, "no_func_span") {
                     self.opt.func_span = false;
                 } else {
                     panic!("Unexpected option: {:?}", path);
