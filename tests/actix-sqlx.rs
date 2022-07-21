@@ -35,7 +35,7 @@ where
 }
 
 #[get("/nest")]
-#[auto_span]
+#[auto_span(debug)]
 async fn nest(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
     let mut tx = pool.begin().await.map_err(SqlxError)?;
     let r: i32 = fetch_one_scalar(sqlx::query_scalar("SELECT b"), &mut tx)
@@ -45,7 +45,7 @@ async fn nest(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
 }
 
 #[get("/test-if")]
-#[auto_span]
+#[auto_span(debug)]
 async fn test_if(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
     let r: Vec<i32> = if true {
         sqlx::query_scalar("SELECT b").fetch_all(pool.as_ref())
@@ -58,13 +58,21 @@ async fn test_if(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String>
 }
 
 #[get("/hello")]
-#[auto_span]
+#[auto_span(debug)]
 async fn greet(pool: web::Data<sqlx::SqlitePool>) -> actix_web::Result<String> {
     let r: Vec<i32> = sqlx::query_scalar("SELECT id")
         .fetch_all(pool.as_ref())
         .await
         .map_err(SqlxError)?;
     Ok(format!("Hello {:?}!", r))
+}
+
+#[get("/req")]
+#[auto_span(debug)]
+async fn use_reqwest() -> actix_web::Result<String> {
+    let target_url = "http://localhost";
+    let r = reqwest::Client::new().get(target_url).send().await.unwrap();
+    Ok(format!("Reqwest {:?}", r))
 }
 
 #[actix_web::main]

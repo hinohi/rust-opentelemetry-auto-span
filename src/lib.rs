@@ -211,14 +211,7 @@ impl VisitMut for ReqwestVisitor {
 
 fn is_reqwest(func: &Expr) -> bool {
     match func {
-        Expr::Path(path) => {
-            eprintln!(
-                "{} {}",
-                quote!(#path),
-                path_starts_with(&path.path, vec!["reqwest", "*"])
-            );
-            path_starts_with(&path.path, vec!["reqwest", "*"])
-        }
+        Expr::Path(path) => path_starts_with(&path.path, vec!["reqwest", "*"]),
         _ => false,
     }
 }
