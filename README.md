@@ -19,7 +19,8 @@ to make it possible to measure the function with the opentelemetry.
    opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio-current-thread"] }
    actix-web-opentelemetry = { git = "https://github.com/OutThereLabs/actix-web-opentelemetry" }
    ```
-2. Initialize opentelemetry-jaeger
+2. Define `const TRACE_NAME: &str = "・・・`
+3. Initialize opentelemetry-jaeger
 
    ```rust
    use opentelemetry::{
@@ -34,7 +35,7 @@ to make it possible to measure the function with the opentelemetry.
        .install_batch(TokioCurrentThread)
        .expect("pipeline install error");
    ```
-3. Add annotation
+4. Add annotation
 
    ```rust
    use rust_opentelemetry_auto_span::auto_span;
@@ -160,3 +161,4 @@ fn my_func() {}
 |:-------------|:---------------------------------------------------------------|
 | debug        | Dump the migrated code to ./target/auto_span or /tmp/auto_span |
 | no_func_span | Not generate function level span split                         |
+| no_all_await | Generate span for `await` of `sqlx` and `reqwest` only         |

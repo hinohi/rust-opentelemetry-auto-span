@@ -75,6 +75,24 @@ async fn use_reqwest() -> actix_web::Result<String> {
     Ok(format!("Reqwest {:?}", r))
 }
 
+async fn f() -> i32 {
+    42
+}
+
+#[get("/req")]
+#[auto_span(debug)]
+async fn anonymous_await() -> String {
+    let r = f().await;
+    format!("Reqwest {:?}", r)
+}
+
+#[get("/req")]
+#[auto_span(debug, no_all_await)]
+async fn anonymous_await2() -> String {
+    let r = f().await;
+    format!("Reqwest {:?}", r)
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     global::set_text_map_propagator(TraceContextPropagator::new());

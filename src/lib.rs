@@ -25,7 +25,7 @@ pub fn auto_span(
     };
 
     let mut input = parse_macro_input!(item as ItemFn);
-    AwaitVisitor::new().visit_item_fn_mut(&mut input);
+    AwaitVisitor::new(opt.all_await).visit_item_fn_mut(&mut input);
     insert_tracer(&mut input, opt.func_span);
     let token = quote! {#input};
 
@@ -74,7 +74,9 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool) {
     }
 }
 
-struct AwaitVisitor;
+struct AwaitVisitor {
+    all_await: bool,
+}
 
 struct SqlxVisitor {
     mutate: bool,
@@ -85,8 +87,8 @@ struct ReqwestVisitor {
 }
 
 impl AwaitVisitor {
-    fn new() -> AwaitVisitor {
-        AwaitVisitor
+    fn new(all_await: bool) -> AwaitVisitor {
+        AwaitVisitor { all_await }
     }
 
     fn handle_sqlx(&self, expr_await: &mut ExprAwait) -> bool {
@@ -124,6 +126,15 @@ impl VisitMut for AwaitVisitor {
                     *i = syn::parse2(t).unwrap();
                 } else {
                     syn::visit_mut::visit_expr_await_mut(self, expr);
+                    if self.all_await {
+                        let t = quote! {
+                            {
+                                let mut __span = __tracer.start(concat!("await:", line!()));
+                                #expr
+                            }
+                        };
+                        *i = syn::parse2(t).unwrap();
+                    }
                 }
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
@@ -223,6 +234,7 @@ struct AttrVisitor<'ast> {
 
 struct Opt {
     func_span: bool,
+    all_await: bool,
     debug: bool,
 }
 
@@ -230,8 +242,9 @@ impl<'ast> AttrVisitor<'ast> {
     fn new() -> AttrVisitor<'ast> {
         AttrVisitor {
             opt: Opt {
-                debug: false,
                 func_span: true,
+                all_await: true,
+                debug: false,
             },
             _phantom: PhantomData,
         }
@@ -246,6 +259,8 @@ impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
                     self.opt.debug = true;
                 } else if path_match(path, "no_func_span") {
                     self.opt.func_span = false;
+                } else if path_match(path, "no_all_await") {
+                    self.opt.all_await = false;
                 } else {
                     panic!("Unexpected option: {:?}", path);
                 }
