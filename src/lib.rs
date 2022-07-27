@@ -4,8 +4,8 @@ use std::marker::PhantomData;
 
 use quote::quote;
 use syn::{
-    parse_macro_input, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr, ExprAwait, ExprCall,
-    ItemFn, Meta,
+    parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
+    ExprAwait, ExprCall, ItemFn, Meta,
 };
 
 use crate::utils::{path_match, path_starts_with};
@@ -106,12 +106,13 @@ impl AwaitVisitor {
 
 impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
+        let line = expr.span().start().line;
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
                     let t = quote! {
                         {
-                            let mut __span = __tracer.start(concat!("db:", line!()));
+                            let mut __span = __tracer.start(concat!("db:", #line));
                             #expr
                         }
                     };
@@ -119,7 +120,7 @@ impl VisitMut for AwaitVisitor {
                 } else if self.handle_reqwest(expr) {
                     let t = quote! {
                         {
-                            let mut __span = __tracer.start(concat!("http:", line!()));
+                            let mut __span = __tracer.start(concat!("http:", #line));
                             #expr
                         }
                     };
@@ -129,7 +130,7 @@ impl VisitMut for AwaitVisitor {
                     if self.all_await {
                         let t = quote! {
                             {
-                                let mut __span = __tracer.start(concat!("await:", line!()));
+                                let mut __span = __tracer.start(concat!("await:", #line));
                                 #expr
                             }
                         };
