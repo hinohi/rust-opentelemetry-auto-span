@@ -87,7 +87,7 @@ async fn anonymous_await() -> String {
 }
 
 #[get("/req")]
-#[auto_span(debug, no_all_await)]
+#[auto_span(debug, all_await)]
 async fn anonymous_await2() -> String {
     let r = f().await;
     format!("Reqwest {:?}", r)

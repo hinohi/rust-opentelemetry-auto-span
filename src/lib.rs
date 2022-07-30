@@ -4,8 +4,8 @@ use std::marker::PhantomData;
 
 use quote::quote;
 use syn::{
-    parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
-    ExprAwait, ExprCall, ItemFn, Meta,
+    parse_macro_input, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr, ExprAwait, ExprCall,
+    ItemFn, Meta,
 };
 
 use crate::utils::{path_match, path_starts_with};
@@ -49,9 +49,11 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool) {
         quote! {
             {
                 #[allow(unused_imports)]
-                use opentelemetry::trace::{Tracer, Span};
-                let __tracer = opentelemetry::global::tracer(TRACE_NAME);
-                let __span = __tracer.start(#func_span_name);
+                use opentelemetry::trace::{Tracer, Span, TraceContextExt};
+                let __tracer = opentelemetry::global::tracer(&*TRACE_NAME);
+                let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
+                let __guard = __ctx.clone().attach();
+                let __span = __ctx.span();
                 #(#stmts)*
             }
         }
@@ -59,8 +61,8 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool) {
         quote! {
             {
                 #[allow(unused_imports)]
-                use opentelemetry::trace::{Tracer, Span};
-                let __tracer = opentelemetry::global::tracer(TRACE_NAME);
+                use opentelemetry::trace::{Tracer, Span, TraceContextExt};
+                let __tracer = opentelemetry::global::tracer(&*TRACE_NAME);
                 #(#stmts)*
             }
         }
@@ -106,13 +108,14 @@ impl AwaitVisitor {
 
 impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
-        let line = expr.span().start().line;
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
                     let t = quote! {
                         {
-                            let mut __span = __tracer.start(concat!("db:", #line));
+                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start("db"));
+                            let __guard = __ctx.clone().attach();
+                            let __span = __ctx.span();
                             #expr
                         }
                     };
@@ -120,7 +123,9 @@ impl VisitMut for AwaitVisitor {
                 } else if self.handle_reqwest(expr) {
                     let t = quote! {
                         {
-                            let mut __span = __tracer.start(concat!("http:", #line));
+                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start("http"));
+                            let __guard = __ctx.clone().attach();
+                            let __span = __ctx.span();
                             #expr
                         }
                     };
@@ -130,7 +135,9 @@ impl VisitMut for AwaitVisitor {
                     if self.all_await {
                         let t = quote! {
                             {
-                                let mut __span = __tracer.start(concat!("await:", #line));
+                                let __ctx = opentelemetry::Context::current_with_span(__tracer.start("await"));
+                                let __guard = __ctx.clone().attach();
+                                let __span = __ctx.span();
                                 #expr
                             }
                         };
@@ -244,7 +251,7 @@ impl<'ast> AttrVisitor<'ast> {
         AttrVisitor {
             opt: Opt {
                 func_span: true,
-                all_await: true,
+                all_await: false,
                 debug: false,
             },
             _phantom: PhantomData,
@@ -260,8 +267,8 @@ impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
                     self.opt.debug = true;
                 } else if path_match(path, "no_func_span") {
                     self.opt.func_span = false;
-                } else if path_match(path, "no_all_await") {
-                    self.opt.all_await = false;
+                } else if path_match(path, "all_await") {
+                    self.opt.all_await = true;
                 } else {
                     panic!("Unexpected option: {:?}", path);
                 }
