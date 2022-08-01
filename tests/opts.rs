@@ -27,10 +27,26 @@ fn e() -> i32 {
     0b0011
 }
 
+#[auto_span(name = "ggg", debug)]
+fn g() -> i32 {
+    0b0011
+}
+
+fn name() -> &'static str {
+    "hhhh"
+}
+
+#[auto_span(name_def = "name()", debug)]
+fn h() -> i32 {
+    0b0011
+}
+
 fn main() {
     let _ = a();
     let _ = b();
     let _ = c();
     let _ = d();
     let _ = e();
+    let _ = g();
+    let _ = h();
 }

@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use quote::quote;
 use syn::{
     parse_macro_input, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr, ExprAwait, ExprCall,
-    ItemFn, Meta,
+    ItemFn, Lit, Meta,
 };
 
 use crate::utils::{path_match, path_starts_with};
@@ -26,7 +26,10 @@ pub fn auto_span(
 
     let mut input = parse_macro_input!(item as ItemFn);
     AwaitVisitor::new(opt.all_await).visit_item_fn_mut(&mut input);
-    insert_tracer(&mut input, opt.func_span);
+    let tracer_expr = opt
+        .name_def
+        .unwrap_or_else(|| syn::parse2(quote!(&*TRACE_NAME)).unwrap());
+    insert_tracer(&mut input, opt.func_span, tracer_expr);
     let token = quote! {#input};
 
     if opt.debug {
@@ -42,7 +45,7 @@ pub fn auto_span(
     token.into()
 }
 
-fn insert_tracer(i: &mut ItemFn, with_span: bool) {
+fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
     let func_span_name = format!("fn:{}", i.sig.ident);
     let stmts = &i.block.stmts;
     let body: Expr = syn::parse2(if with_span {
@@ -50,7 +53,7 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool) {
             {
                 #[allow(unused_imports)]
                 use opentelemetry::trace::{Tracer, Span, TraceContextExt};
-                let __tracer = opentelemetry::global::tracer(&*TRACE_NAME);
+                let __tracer = opentelemetry::global::tracer(#tracer_expr);
                 let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
                 let __guard = __ctx.clone().attach();
                 let __span = __ctx.span();
@@ -62,7 +65,7 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool) {
             {
                 #[allow(unused_imports)]
                 use opentelemetry::trace::{Tracer, Span, TraceContextExt};
-                let __tracer = opentelemetry::global::tracer(&*TRACE_NAME);
+                let __tracer = opentelemetry::global::tracer(#tracer_expr);
                 #(#stmts)*
             }
         }
@@ -244,6 +247,7 @@ struct Opt {
     func_span: bool,
     all_await: bool,
     debug: bool,
+    name_def: Option<Expr>,
 }
 
 impl<'ast> AttrVisitor<'ast> {
@@ -253,6 +257,7 @@ impl<'ast> AttrVisitor<'ast> {
                 func_span: true,
                 all_await: false,
                 debug: false,
+                name_def: None,
             },
             _phantom: PhantomData,
         }
@@ -273,7 +278,27 @@ impl<'ast> Visit<'ast> for AttrVisitor<'ast> {
                     panic!("Unexpected option: {:?}", path);
                 }
             }
-            Meta::NameValue(_) => (),
+            Meta::NameValue(kv) => {
+                if path_match(&kv.path, "name") {
+                    assert!(self.opt.name_def.is_none());
+                    let s = match &kv.lit {
+                        Lit::Str(s) => s.value(),
+                        _ => panic!("Unexpected token literal: {:?}", kv.lit),
+                    };
+                    self.opt.name_def = Some(syn::parse2(quote!(#s)).unwrap());
+                } else if path_match(&kv.path, "name_def") {
+                    assert!(self.opt.name_def.is_none());
+                    let s = match &kv.lit {
+                        Lit::Str(s) => s.value(),
+                        _ => panic!("Unexpected token literal: {:?}", kv.lit),
+                    };
+                    let expr = syn::parse_str(&s)
+                        .unwrap_or_else(|e| panic!("Syntax error: {} by {}", e, s));
+                    self.opt.name_def = Some(expr);
+                } else {
+                    panic!("Unexpected option: {:?}", kv.path);
+                }
+            }
             Meta::List(meta_list) => self.visit_meta_list(meta_list),
         }
     }
