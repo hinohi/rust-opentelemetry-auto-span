@@ -68,3 +68,50 @@ impl From<Vec<Vec<&str>>> for PathPat {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(s: &str) -> Path {
+        let expr = syn::parse_str(s).unwrap();
+        match expr {
+            syn::Expr::Path(path) => path.path,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_path_match() {
+        assert!(path_match(&p("a"), "a"));
+        assert!(!path_match(&p("a"), "b"));
+        assert!(path_match(&p("a"), "*"));
+        assert!(!path_match(&p("a::b"), "a"));
+        assert!(path_match(&p("a::b"), vec!["a", "b"]));
+        assert!(!path_match(&p("a::b"), vec!["a", "b", "c"]));
+        assert!(path_match(&p("a::b::c"), vec!["a", "b", "*"]));
+        assert!(path_match(&p("a::b::c"), vec!["a", "*", "c"]));
+        assert!(path_match(&p("a::b::c"), vec!["*", "b", "c"]));
+        assert!(!path_match(&p("a::b::c"), vec!["*", "*", "d"]));
+        assert!(path_match(&p("a"), vec![vec!["a"]]));
+        assert!(path_match(&p("a"), vec![vec!["a", "b"]]));
+        assert!(!path_match(&p("a"), vec![vec!["b", "c"]]));
+    }
+
+    #[test]
+    fn test_path_starts_with() {
+        assert!(path_starts_with(&p("a"), "a"));
+        assert!(!path_starts_with(&p("a"), "b"));
+        assert!(path_starts_with(&p("a"), "*"));
+        assert!(path_starts_with(&p("a::b"), "a"));
+        assert!(!path_starts_with(&p("a::b"), "b"));
+        assert!(path_starts_with(&p("a::b"), vec!["a", "b"]));
+        assert!(path_starts_with(&p("a::b"), vec!["a", "*"]));
+        assert!(!path_starts_with(&p("a"), vec!["a", "*"]));
+        assert!(path_starts_with(
+            &p("a::b::c"),
+            vec![vec!["a"], vec!["b", "bb"]]
+        ));
+        assert!(!path_starts_with(&p("a::b::c"), vec![vec!["a"], vec!["c"]]));
+    }
+}
