@@ -1,14 +1,19 @@
+mod line;
 mod utils;
 
 use std::marker::PhantomData;
 
+use proc_macro2::Span;
 use quote::quote;
 use syn::{
-    parse_macro_input, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr, ExprAwait, ExprCall,
-    ItemFn, Lit, Meta,
+    parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
+    ExprAwait, ExprCall, Item, ItemFn, Lit, Meta,
 };
 
-use crate::utils::{path_match, path_starts_with};
+use crate::{
+    line::LineAccess,
+    utils::{path_match, path_starts_with},
+};
 
 #[proc_macro_attribute]
 pub fn auto_span(
@@ -25,8 +30,8 @@ pub fn auto_span(
     };
 
     let mut input = parse_macro_input!(item as ItemFn);
-
-    AwaitVisitor::new(opt.all_await).visit_item_fn_mut(&mut input);
+    let line_access = LineAccess::new(input.span().source_file().path());
+    AwaitVisitor::new(line_access, opt.all_await).visit_item_fn_mut(&mut input);
     let tracer_expr = opt
         .name_def
         .unwrap_or_else(|| syn::parse2(quote!(&*TRACE_NAME)).unwrap());
@@ -81,6 +86,7 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
 }
 
 struct AwaitVisitor {
+    line_access: LineAccess,
     all_await: bool,
 }
 
@@ -93,8 +99,11 @@ struct ReqwestVisitor {
 }
 
 impl AwaitVisitor {
-    fn new(all_await: bool) -> AwaitVisitor {
-        AwaitVisitor { all_await }
+    fn new(line_access: LineAccess, all_await: bool) -> AwaitVisitor {
+        AwaitVisitor {
+            line_access,
+            all_await,
+        }
     }
 
     fn handle_sqlx(&self, expr_await: &mut ExprAwait) -> bool {
@@ -108,6 +117,14 @@ impl AwaitVisitor {
         visitor.visit_expr_await_mut(expr_await);
         visitor.mutate
     }
+
+    fn gen_name(&self, name: &str, span: Span) -> String {
+        if let Some((start, end)) = self.line_access.span(span) {
+            format!("{}:{}-{}", name, start, end)
+        } else {
+            name.to_owned()
+        }
+    }
 }
 
 impl VisitMut for AwaitVisitor {
@@ -115,9 +132,10 @@ impl VisitMut for AwaitVisitor {
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
+                    let name = self.gen_name("db", expr.span());
                     let t = quote! {
                         {
-                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start("db"));
+                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
                             let __guard = __ctx.clone().attach();
                             let __span = __ctx.span();
                             #expr
@@ -151,6 +169,10 @@ impl VisitMut for AwaitVisitor {
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
         };
+    }
+
+    fn visit_item_mut(&mut self, i: &mut Item) {
+        todo!()
     }
 }
 
