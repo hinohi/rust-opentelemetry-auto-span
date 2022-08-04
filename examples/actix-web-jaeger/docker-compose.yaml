@@ -1,0 +1,20 @@
+version: "3"
+services:
+  mysql:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: actix-otel-auto-span
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./sample.sql:/docker-entrypoint-initdb.d/sample.sql
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"

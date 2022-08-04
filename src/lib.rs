@@ -1,14 +1,18 @@
+mod line;
 mod utils;
 
 use std::marker::PhantomData;
 
 use quote::quote;
 use syn::{
-    parse_macro_input, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr, ExprAwait, ExprCall,
-    ItemFn, Lit, Meta,
+    parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
+    ExprAwait, ExprCall, ItemFn, Lit, Meta,
 };
 
-use crate::utils::{path_match, path_starts_with};
+use crate::{
+    line::LineAccess,
+    utils::{path_match, path_starts_with},
+};
 
 #[proc_macro_attribute]
 pub fn auto_span(
@@ -24,7 +28,14 @@ pub fn auto_span(
         visitor.opt
     };
 
+    let dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    // dir.push("src");
+    let la = LineAccess::new(dir);
+
     let mut input = parse_macro_input!(item as ItemFn);
+    if let Some(f) = la.get(&input) {
+        input = f;
+    }
     AwaitVisitor::new(opt.all_await).visit_item_fn_mut(&mut input);
     let tracer_expr = opt
         .name_def
@@ -111,12 +122,14 @@ impl AwaitVisitor {
 
 impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
+        let start = i.span().start().line;
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
+                    let name = format!("db:{}", start);
                     let t = quote! {
                         {
-                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start("db"));
+                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
                             let __guard = __ctx.clone().attach();
                             let __span = __ctx.span();
                             #expr

@@ -1,0 +1,19 @@
+[package]
+name = "actix-web-jaeger"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = "4.1.0"
+opentelemetry = { version = "0.17", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
+opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio-current-thread"] }
+reqwest = { version = "0.11", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+sqlx = { version = "0.6", default-features = false, features = ["macros", "runtime-actix-rustls", "mysql"] }
+thiserror = "1.0"
+
+actix-web-opentelemetry = { git = "https://github.com/OutThereLabs/actix-web-opentelemetry" }
+
+opentelemetry-auto-span = { path = "../.." }

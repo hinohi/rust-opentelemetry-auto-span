@@ -6,14 +6,14 @@
 
    ```toml
    opentelemetry = { version = "0.17", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
-   rust-opentelemetry-auto-span = { git = "https://github.com/hinohi/rust-opentelemetry-auto-span" }
+   opentelemetry-auto-span = { git = "https://github.com/hinohi/rust-opentelemetry-auto-span" }
    ```
 2. Define `const TRACE_NAME: &str = "・・・` global
 3. Initialize tracer and more
 4. Add annotation
 
    ```rust
-   use rust_opentelemetry_auto_span::auto_span;
+   use opentelemetry_auto_span::auto_span;
 
    #[auto_span]
    async fn my_func() {}
