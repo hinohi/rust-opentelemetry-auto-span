@@ -32,8 +32,8 @@ impl ResponseError for Error {
     }
 }
 
-#[get("/")]
 #[auto_span]
+#[get("/")]
 async fn hello() -> impl Responder {
     HttpResponse::Ok().body("Hello world!")
 }
@@ -46,7 +46,7 @@ struct User {
 }
 
 #[get("/user/{id}")]
-#[auto_span]
+#[auto_span(debug)]
 async fn get_user(
     id: web::Path<(i64,)>,
     db: web::Data<sqlx::MySqlPool>,
