@@ -1,27 +1,8 @@
 # rust-opentelemetry-auto-span
 
-## Usage
-
-1. Add dependency (not published for creates.io yet)
-
-   ```toml
-   opentelemetry = { version = "0.17", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
-   opentelemetry-auto-span = { git = "https://github.com/hinohi/rust-opentelemetry-auto-span" }
-   ```
-2. Define `const TRACE_NAME: &str = "・・・` global
-3. Initialize tracer and more
-4. Add annotation
-
-   ```rust
-   use opentelemetry_auto_span::auto_span;
-
-   #[auto_span]
-   async fn my_func() {}
-   ```
+![](./image.png)
 
 ## Convert Example
-
-### Just function
 
 ### use `sqlx::query*`
 
