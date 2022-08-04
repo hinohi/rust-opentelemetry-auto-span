@@ -1,3 +1,4 @@
+mod dig;
 mod line;
 mod utils;
 
@@ -7,10 +8,11 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{
     parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
-    ExprAwait, ExprCall, Item, ItemFn, Lit, Meta,
+    ExprAwait, ExprCall, ItemFn, Lit, Meta,
 };
 
 use crate::{
+    dig::find_source_path,
     line::LineAccess,
     utils::{path_match, path_starts_with},
 };
@@ -30,7 +32,14 @@ pub fn auto_span(
     };
 
     let mut input = parse_macro_input!(item as ItemFn);
-    let line_access = LineAccess::new(input.span().source_file().path());
+
+    let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    dir.push("src");
+    let line_access = if let Some(path) = find_source_path(dir, &input) {
+        Some(LineAccess::new(path))
+    } else {
+        None
+    };
     AwaitVisitor::new(line_access, opt.all_await).visit_item_fn_mut(&mut input);
     let tracer_expr = opt
         .name_def
@@ -86,7 +95,7 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
 }
 
 struct AwaitVisitor {
-    line_access: LineAccess,
+    line_access: Option<LineAccess>,
     all_await: bool,
 }
 
@@ -99,7 +108,7 @@ struct ReqwestVisitor {
 }
 
 impl AwaitVisitor {
-    fn new(line_access: LineAccess, all_await: bool) -> AwaitVisitor {
+    fn new(line_access: Option<LineAccess>, all_await: bool) -> AwaitVisitor {
         AwaitVisitor {
             line_access,
             all_await,
@@ -119,60 +128,53 @@ impl AwaitVisitor {
     }
 
     fn gen_name(&self, name: &str, span: Span) -> String {
-        if let Some((start, end)) = self.line_access.span(span) {
-            format!("{}:{}-{}", name, start, end)
-        } else {
-            name.to_owned()
+        if let Some(ref line_access) = self.line_access {
+            if let Some((start, end)) = line_access.span(span) {
+                return if start == end {
+                    format!("{}:#L{}", name, start)
+                } else {
+                    format!("{}:#L{}-{}", name, start, end)
+                };
+            }
         }
+        name.to_owned()
     }
 }
 
 impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
+        let span = i.span();
+
+        let new_span = |name, expr| {
+            let t = quote! {
+                {
+                    let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
+                    let __guard = __ctx.clone().attach();
+                    let __span = __ctx.span();
+                    #expr
+                }
+            };
+            syn::parse2(t).unwrap()
+        };
+
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
-                    let name = self.gen_name("db", expr.span());
-                    let t = quote! {
-                        {
-                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
-                            let __guard = __ctx.clone().attach();
-                            let __span = __ctx.span();
-                            #expr
-                        }
-                    };
-                    *i = syn::parse2(t).unwrap();
+                    let name = self.gen_name("db", span);
+                    *i = new_span(name, expr);
                 } else if self.handle_reqwest(expr) {
-                    let t = quote! {
-                        {
-                            let __ctx = opentelemetry::Context::current_with_span(__tracer.start("http"));
-                            let __guard = __ctx.clone().attach();
-                            let __span = __ctx.span();
-                            #expr
-                        }
-                    };
-                    *i = syn::parse2(t).unwrap();
+                    let name = self.gen_name("http", span);
+                    *i = new_span(name, expr);
                 } else {
                     syn::visit_mut::visit_expr_await_mut(self, expr);
                     if self.all_await {
-                        let t = quote! {
-                            {
-                                let __ctx = opentelemetry::Context::current_with_span(__tracer.start("await"));
-                                let __guard = __ctx.clone().attach();
-                                let __span = __ctx.span();
-                                #expr
-                            }
-                        };
-                        *i = syn::parse2(t).unwrap();
+                        let name = self.gen_name("await", span);
+                        *i = new_span(name, expr);
                     }
                 }
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
         };
-    }
-
-    fn visit_item_mut(&mut self, i: &mut Item) {
-        todo!()
     }
 }
 
