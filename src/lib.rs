@@ -127,17 +127,13 @@ impl AwaitVisitor {
         visitor.mutate
     }
 
-    fn gen_name(&self, name: &str, span: Span) -> String {
+    fn get_line_info(&self, name: &str, span: Span) -> (String, Option<String>) {
         if let Some(ref line_access) = self.line_access {
-            if let Some((start, end)) = line_access.span(span) {
-                return if start == end {
-                    format!("{}:#L{}", name, start)
-                } else {
-                    format!("{}:#L{}-{}", name, start, end)
-                };
+            if let Some((n, line)) = line_access.span(span) {
+                return (format!("{}:#L{}", name, n), Some(line));
             }
         }
-        name.to_owned()
+        (name.to_owned(), None)
     }
 }
 
@@ -145,31 +141,39 @@ impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
-        let new_span = |name, expr| {
-            let t = quote! {
+        let new_span = |name, line, expr| {
+            let mut tokens = quote! {
+                let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
+                let __guard = __ctx.clone().attach();
+                let __span = __ctx.span();
+            };
+            if let Some(line) = line {
+                tokens.extend(quote! {
+                    __span.set_attribute(opentelemetry::KeyValue::new("line", #line));
+                });
+            }
+            let tokens = quote! {
                 {
-                    let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
-                    let __guard = __ctx.clone().attach();
-                    let __span = __ctx.span();
+                    #tokens
                     #expr
                 }
             };
-            syn::parse2(t).unwrap()
+            syn::parse2(tokens).unwrap()
         };
 
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
-                    let name = self.gen_name("db", span);
-                    *i = new_span(name, expr);
+                    let (name, line) = self.get_line_info("db", span);
+                    *i = new_span(name, line, expr);
                 } else if self.handle_reqwest(expr) {
-                    let name = self.gen_name("http", span);
-                    *i = new_span(name, expr);
+                    let (name, line) = self.get_line_info("http", span);
+                    *i = new_span(name, line, expr);
                 } else {
                     syn::visit_mut::visit_expr_await_mut(self, expr);
                     if self.all_await {
-                        let name = self.gen_name("await", span);
-                        *i = new_span(name, expr);
+                        let (name, line) = self.get_line_info("await", span);
+                        *i = new_span(name, line, expr);
                     }
                 }
             }

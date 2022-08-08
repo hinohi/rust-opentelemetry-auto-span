@@ -35,6 +35,13 @@ impl ResponseError for Error {
 #[auto_span]
 #[get("/")]
 async fn hello() -> impl Responder {
+    let ctx = opentelemetry::Context::current_with_span(__tracer.start(TRACE_NAME));
+    let _guard = ctx.clone().attach();
+    let span = ctx.span();
+    span.set_status(
+        opentelemetry::trace::StatusCode::Error,
+        String::from("Something wrong!"),
+    );
     HttpResponse::Ok().body("Hello world!")
 }
 
