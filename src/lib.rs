@@ -35,11 +35,7 @@ pub fn auto_span(
 
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
-    let line_access = if let Some(path) = find_source_path(dir, &input) {
-        Some(LineAccess::new(path))
-    } else {
-        None
-    };
+    let line_access = find_source_path(dir, &input).map(LineAccess::new);
     AwaitVisitor::new(line_access, opt.all_await).visit_item_fn_mut(&mut input);
     let tracer_expr = opt
         .name_def

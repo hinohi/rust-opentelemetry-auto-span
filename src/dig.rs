@@ -26,19 +26,16 @@ fn is_contain_target_func(path: &Path, name: &str, sig: &str) -> bool {
     let content = unwrap_or_return!(std::fs::read_to_string(path), false);
     let file = unwrap_or_return!(syn::parse_file(&content), false);
     for item in file.items {
-        match item {
-            Item::Fn(mut func) => {
-                if func.sig.ident != name {
-                    continue;
-                }
-                if let Some(attrs) = strip_attrs(&func.attrs) {
-                    func.attrs = attrs;
-                    if func.to_token_stream().to_string() == sig {
-                        return true;
-                    }
+        if let Item::Fn(mut func) = item {
+            if func.sig.ident != name {
+                continue;
+            }
+            if let Some(attrs) = strip_attrs(&func.attrs) {
+                func.attrs = attrs;
+                if func.to_token_stream().to_string() == sig {
+                    return true;
                 }
             }
-            _ => (),
         }
     }
     false
@@ -65,10 +62,8 @@ where
                 return Some(path);
             }
         }
-    } else if path.extension().and_then(|ex| ex.to_str()) == Some("rs") {
-        if task(path) {
-            return Some(path.to_path_buf());
-        }
+    } else if path.extension().and_then(|ex| ex.to_str()) == Some("rs") && task(path) {
+        return Some(path.to_path_buf());
     }
     None
 }

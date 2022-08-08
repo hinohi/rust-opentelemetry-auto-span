@@ -18,7 +18,7 @@ struct Line {
 
 impl LineAccess {
     pub fn new<P: AsRef<Path>>(path: P) -> LineAccess {
-        let buf = std::fs::read(path).unwrap_or(Vec::new());
+        let buf = std::fs::read(path).unwrap_or_default();
         Self::from_bytes(&buf)
     }
 
@@ -26,10 +26,7 @@ impl LineAccess {
         let mut lines = Vec::<Line>::new();
         for (i, &b) in buf.iter().enumerate() {
             if b == b'\n' {
-                let start_bytes = lines
-                    .last()
-                    .and_then(|l| Some(l.end_bytes + 1))
-                    .unwrap_or(0);
+                let start_bytes = lines.last().map(|l| l.end_bytes + 1).unwrap_or(0);
                 let data = buf[start_bytes..i]
                     .iter()
                     .copied()
@@ -38,10 +35,7 @@ impl LineAccess {
                 let line = Line {
                     start_bytes,
                     end_bytes: i,
-                    line_number: lines
-                        .last()
-                        .and_then(|l| Some(l.line_number + 1))
-                        .unwrap_or(1),
+                    line_number: lines.last().map(|l| l.line_number + 1).unwrap_or(1),
                     data: String::from_utf8_lossy(&data).to_string(),
                 };
                 lines.push(line);
@@ -62,7 +56,7 @@ impl LineAccess {
         let captures = self.span_pat.captures(&span_debug)?;
         let start_bytes: usize = captures.get(1)?.as_str().parse().ok()?;
         self.find_line(start_bytes)
-            .and_then(|line| Some((line.line_number, line.data.clone())))
+            .map(|line| (line.line_number, line.data.clone()))
     }
 
     fn find_line(&self, bytes: usize) -> Option<&Line> {
