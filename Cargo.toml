@@ -9,6 +9,15 @@ name = "opentelemetry-auto-span"
 version = "0.1.0"
 edition = "2021"
 autotests = false
+license = "Apache-2.0"
+description = "A helper library for opentelemetry tracing"
+repository = "https://github.com/hinohi/rust-opentelemetry-auto-span"
+readme = "README.md"
+keywords = ["opentelemetry", "logging", "tracing"]
+categories = [
+    "development-tools::debugging",
+    "development-tools::profiling",
+]
 
 [lib]
 proc-macro = true
