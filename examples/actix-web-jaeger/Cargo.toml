@@ -14,6 +14,6 @@ serde = { version = "1.0", features = ["derive"] }
 sqlx = { version = "0.6", default-features = false, features = ["macros", "runtime-actix-rustls", "mysql"] }
 thiserror = "1.0"
 
-actix-web-opentelemetry = { git = "https://github.com/OutThereLabs/actix-web-opentelemetry" }
+actix-web-opentelemetry = "0.13.0-alpha.1"
 
 opentelemetry-auto-span = { path = "../.." }
