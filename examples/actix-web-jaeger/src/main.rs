@@ -37,11 +37,7 @@ impl ResponseError for Error {
 async fn hello() -> impl Responder {
     let ctx = opentelemetry::Context::current_with_span(__tracer.start(TRACE_NAME));
     let _guard = ctx.clone().attach();
-    let span = ctx.span();
-    span.set_status(
-        opentelemetry::trace::StatusCode::Error,
-        String::from("Something wrong!"),
-    );
+    let _span = ctx.span();
     HttpResponse::Ok().body("Hello world!")
 }
 
@@ -93,7 +89,7 @@ async fn main() -> std::io::Result<()> {
             .service(hello)
             .service(get_user)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", 8081))?
     .run()
     .await
 }

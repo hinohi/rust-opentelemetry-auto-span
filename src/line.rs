@@ -48,7 +48,7 @@ impl LineAccess {
         }
     }
 
-    pub fn span(&self, span: Span) -> Option<(usize, String)> {
+    pub fn span(&self, span: Span) -> Option<(i64, String)> {
         if self.lines.is_empty() {
             return None;
         }
@@ -56,7 +56,7 @@ impl LineAccess {
         let captures = self.span_pat.captures(&span_debug)?;
         let start_bytes: usize = captures.get(1)?.as_str().parse().ok()?;
         self.find_line(start_bytes)
-            .map(|line| (line.line_number, line.data.clone()))
+            .map(|line| (line.line_number as i64, line.data.clone()))
     }
 
     fn find_line(&self, bytes: usize) -> Option<&Line> {

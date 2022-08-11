@@ -3,7 +3,7 @@ mod dig;
 mod line;
 mod utils;
 
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
     parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
@@ -114,13 +114,8 @@ impl AwaitVisitor {
         visitor.mutate
     }
 
-    fn get_line_info(&self, name: &str, span: Span) -> (String, Option<String>) {
-        if let Some(ref line_access) = self.line_access {
-            if let Some((n, line)) = line_access.span(span) {
-                return (format!("{}:#L{}", name, n), Some(line));
-            }
-        }
-        (name.to_owned(), None)
+    fn get_line_info(&self, span: Span) -> Option<(i64, String)> {
+        self.line_access.as_ref().and_then(|la| la.span(span))
     }
 }
 
@@ -128,17 +123,21 @@ impl VisitMut for AwaitVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
+        let add_line_info = |tokens: &mut TokenStream, line| {
+            if let Some((line, code)) = line {
+                tokens.extend(quote! {
+                    __span.set_attribute(opentelemetry::KeyValue::new("aut_span.line", #line));
+                    __span.set_attribute(opentelemetry::KeyValue::new("aut_span.code", #code));
+                });
+            }
+        };
         let new_span = |name, line, expr| {
             let mut tokens = quote! {
                 let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
                 let __guard = __ctx.clone().attach();
                 let __span = __ctx.span();
             };
-            if let Some(line) = line {
-                tokens.extend(quote! {
-                    __span.set_attribute(opentelemetry::KeyValue::new("line", #line));
-                });
-            }
+            add_line_info(&mut tokens, line);
             let tokens = quote! {
                 {
                     #tokens
@@ -151,18 +150,34 @@ impl VisitMut for AwaitVisitor {
         match i {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
-                    let (name, line) = self.get_line_info("db", span);
-                    *i = new_span(name, line, expr);
+                    *i = new_span("db", self.get_line_info(span), expr);
                 } else if self.handle_reqwest(expr) {
-                    let (name, line) = self.get_line_info("http", span);
-                    *i = new_span(name, line, expr);
+                    *i = new_span("http", self.get_line_info(span), expr);
                 } else {
                     syn::visit_mut::visit_expr_await_mut(self, expr);
                     if self.all_await {
-                        let (name, line) = self.get_line_info("await", span);
-                        *i = new_span(name, line, expr);
+                        *i = new_span("await", self.get_line_info(span), expr);
                     }
                 }
+            }
+            Expr::Try(expr) => {
+                syn::visit_mut::visit_expr_try_mut(self, expr);
+
+                let inner = expr.expr.as_ref();
+                let err = if let Some((line, code)) = self.get_line_info(span) {
+                    quote! {format!("line {}, {}\n{}", #line, #code, e)}
+                } else {
+                    quote! {format!("{}", e)}
+                };
+                let tokens = quote! {
+                    __span.set_status(::opentelemetry::trace::StatusCode::Error, #err);
+                };
+                expr.expr = Box::new(
+                    syn::parse2(quote! {
+                        #inner.map_err(|e| { #tokens; e })
+                    })
+                    .unwrap(),
+                );
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
         };
