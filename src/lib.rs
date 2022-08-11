@@ -59,29 +59,20 @@ pub fn auto_span(
 fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
     let func_span_name = format!("fn:{}", i.sig.ident);
     let stmts = &i.block.stmts;
-    let body: Expr = syn::parse2(if with_span {
-        quote! {
-            {
-                #[allow(unused_imports)]
-                use opentelemetry::trace::{Tracer, Span, TraceContextExt};
-                let __tracer = opentelemetry::global::tracer(#tracer_expr);
-                let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
-                let __guard = __ctx.clone().attach();
-                let __span = __ctx.span();
-                #(#stmts)*
-            }
-        }
-    } else {
-        quote! {
-            {
-                #[allow(unused_imports)]
-                use opentelemetry::trace::{Tracer, Span, TraceContextExt};
-                let __tracer = opentelemetry::global::tracer(#tracer_expr);
-                #(#stmts)*
-            }
-        }
-    })
-    .unwrap();
+    let mut tokens = quote! {
+        #[allow(unused_imports)]
+        use opentelemetry::trace::{Tracer, Span, TraceContextExt};
+        let __tracer = opentelemetry::global::tracer(#tracer_expr);
+    };
+    if with_span {
+        tokens.extend(quote! {
+            let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
+            let __guard = __ctx.clone().attach();
+            let __span = __ctx.span();
+            #(#stmts)*
+        });
+    }
+    let body: Expr = syn::parse2(quote! {{#tokens}}).unwrap();
     match body {
         Expr::Block(block) => {
             i.block.stmts = block.block.stmts;
