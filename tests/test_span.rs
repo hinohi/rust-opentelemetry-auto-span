@@ -22,7 +22,11 @@ fn g(x: i32) -> Result<i32, &'static str> {
 
 #[auto_span]
 fn h(x: Option<i32>) -> Option<i32> {
-    Some(x? + 1)
+    #[auto_span]
+    fn in_h(x: Result<i32, &'static str>) -> Result<i32, &'static str> {
+        Ok(x? * 2)
+    }
+    Some(x? + in_h(Err("in_h err")).unwrap_or(3))
 }
 
 #[auto_span]
@@ -57,7 +61,13 @@ async fn main() {
         assert_eq!(data.status_code, StatusCode::Error);
         assert_eq!(data.status_message.to_string(), "x is negative");
     }
-    // h。Option<T>? に対しては map_err が挿入されて欲しくない
+    // h
+    {
+        let data = &span_iter.next().unwrap().1;
+        assert_eq!(data.name, "fn:in_h");
+        assert_eq!(data.status_code, StatusCode::Error);
+        assert_eq!(data.status_message.to_string(), "in_h err");
+    }
     {
         let data = &span_iter.next().unwrap().1;
         assert_eq!(data.name, "fn:h");

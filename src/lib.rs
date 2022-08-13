@@ -34,7 +34,6 @@ pub fn auto_span(
     dir.push("src");
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
     let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
-    visitor.push_fn_context(&input.sig);
     visitor.visit_item_fn_mut(&mut input);
 
     let tracer_expr = opt
@@ -83,16 +82,15 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
 
 struct AutoSpanVisitor {
     line_access: Option<LineAccess>,
-    context: Vec<ReturnType>,
+    context: Vec<ReturnTypeContext>,
     all_await: bool,
 }
 
 #[derive(Copy, Clone)]
-enum ReturnType {
+enum ReturnTypeContext {
     Unknown,
     Result,
     Option,
-    Other,
 }
 
 impl AutoSpanVisitor {
@@ -106,33 +104,33 @@ impl AutoSpanVisitor {
 
     fn push_fn_context(&mut self, sig: &Signature) {
         let rt = match &sig.output {
-            syn::ReturnType::Default => ReturnType::Other,
+            syn::ReturnType::Default => ReturnTypeContext::Unknown,
             syn::ReturnType::Type(_, ty) => match ty.as_ref() {
                 syn::Type::Path(path) => {
                     let name = path.path.segments.last().unwrap().ident.to_string();
                     if name.contains("Result") {
-                        ReturnType::Result
+                        ReturnTypeContext::Result
                     } else if name.contains("Option") {
-                        ReturnType::Option
+                        ReturnTypeContext::Option
                     } else {
-                        ReturnType::Other
+                        ReturnTypeContext::Unknown
                     }
                 }
-                _ => ReturnType::Unknown,
+                _ => ReturnTypeContext::Unknown,
             },
         };
         self.context.push(rt);
     }
 
     pub fn push_closure_context(&mut self) {
-        self.context.push(ReturnType::Unknown);
+        self.context.push(ReturnTypeContext::Unknown);
     }
 
     pub fn pop_context(&mut self) {
         self.context.pop();
     }
 
-    pub fn current_context(&self) -> ReturnType {
+    pub fn current_context(&self) -> ReturnTypeContext {
         *self.context.last().unwrap()
     }
 
@@ -156,7 +154,10 @@ impl AutoSpanVisitor {
 impl VisitMut for AutoSpanVisitor {
     fn visit_item_fn_mut(&mut self, i: &mut ItemFn) {
         self.push_fn_context(&i.sig);
-        syn::visit_mut::visit_item_fn_mut(self, i);
+        if self.context.len() == 1 {
+            // skip inner function, because `span` is not shared
+            syn::visit_mut::visit_item_fn_mut(self, i);
+        }
         self.pop_context();
     }
 
@@ -207,9 +208,9 @@ impl VisitMut for AutoSpanVisitor {
     fn visit_expr_try_mut(&mut self, i: &mut ExprTry) {
         syn::visit_mut::visit_expr_try_mut(self, i);
 
-        let span = i.span().clone();
+        let span = i.span();
         match self.current_context() {
-            ReturnType::Result => {
+            ReturnTypeContext::Result => {
                 let inner = i.expr.as_ref();
                 let err = if let Some((line, code)) = self.get_line_info(span) {
                     quote! {format!("line {}, {}\n{}", #line, #code, e)}
@@ -221,7 +222,7 @@ impl VisitMut for AutoSpanVisitor {
                 };
                 i.expr = Box::new(
                     syn::parse2(quote! {
-                        #inner.map_err(|e| { #tokens; e })
+                        #inner.map_err(|e| { #tokens e })
                     })
                     .unwrap(),
                 );
