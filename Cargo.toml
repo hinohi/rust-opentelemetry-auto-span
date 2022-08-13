@@ -1,6 +1,7 @@
 [workspace]
 members = [
     ".",
+    "tracing-test",
     "examples/actix-web-jaeger",
 ]
 
