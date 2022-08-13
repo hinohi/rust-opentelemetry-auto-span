@@ -6,7 +6,7 @@ mod line;
 mod utils;
 
 use proc_macro2::{Span, TokenStream};
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::{
     parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
     ExprAwait, ExprClosure, ExprTry, ItemFn, Signature,
@@ -181,8 +181,8 @@ impl VisitMut for AutoSpanVisitor {
                 let __span = __ctx.span();
             };
             add_line_info(&mut tokens, line);
-            let tokens = quote! {
-                {
+            let tokens = quote_spanned! {
+                span => {
                     #tokens
                     #expr
                 }
@@ -214,9 +214,9 @@ impl VisitMut for AutoSpanVisitor {
             return;
         }
 
-        let span = i.span();
         match self.current_context() {
             ReturnTypeContext::Result => {
+                let span = i.expr.span();
                 let inner = i.expr.as_ref();
                 let err = if let Some((line, code)) = self.get_line_info(span) {
                     quote! {format!("line {}, {}\n{}", #line, #code, e)}
@@ -227,8 +227,8 @@ impl VisitMut for AutoSpanVisitor {
                     __span.set_status(::opentelemetry::trace::StatusCode::Error, #err);
                 };
                 i.expr = Box::new(
-                    syn::parse2(quote! {
-                        #inner.map_err(|e| { #tokens e })
+                    syn::parse2(quote_spanned! {
+                        span => #inner.map_err(|e| { #tokens e })
                     })
                     .unwrap(),
                 );
