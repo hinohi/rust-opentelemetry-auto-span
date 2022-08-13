@@ -33,7 +33,7 @@ pub fn auto_span(
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
-    let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
+    let mut visitor = AutoSpanVisitor::new(line_access, opt.func_span, opt.all_await);
     visitor.visit_item_fn_mut(&mut input);
 
     let tracer_expr = opt
@@ -83,6 +83,7 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
 struct AutoSpanVisitor {
     line_access: Option<LineAccess>,
     context: Vec<ReturnTypeContext>,
+    func_span: bool,
     all_await: bool,
 }
 
@@ -94,10 +95,11 @@ enum ReturnTypeContext {
 }
 
 impl AutoSpanVisitor {
-    fn new(line_access: Option<LineAccess>, all_await: bool) -> AutoSpanVisitor {
+    fn new(line_access: Option<LineAccess>, func_span: bool, all_await: bool) -> AutoSpanVisitor {
         AutoSpanVisitor {
             line_access,
             context: Vec::new(),
+            func_span,
             all_await,
         }
     }
@@ -207,6 +209,10 @@ impl VisitMut for AutoSpanVisitor {
 
     fn visit_expr_try_mut(&mut self, i: &mut ExprTry) {
         syn::visit_mut::visit_expr_try_mut(self, i);
+
+        if !self.func_span {
+            return;
+        }
 
         let span = i.span();
         match self.current_context() {
