@@ -1,5 +1,7 @@
 mod attr_options;
 mod dig;
+mod handle_reqwest;
+mod handle_sqlx;
 mod line;
 mod utils;
 
@@ -7,14 +9,11 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
     parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
-    ExprAwait, ExprCall, ItemFn,
+    ExprAwait, ItemFn,
 };
 
 use crate::{
-    attr_options::AttrVisitor,
-    dig::find_source_path,
-    line::LineAccess,
-    utils::{path_match, path_starts_with},
+    attr_options::AttrVisitor, dig::find_source_path, line::LineAccess,
 };
 
 #[proc_macro_attribute]
@@ -36,7 +35,7 @@ pub fn auto_span(
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
-    AwaitVisitor::new(line_access, opt.all_await).visit_item_fn_mut(&mut input);
+    AutoSpanVisitor::new(line_access, opt.all_await).visit_item_fn_mut(&mut input);
     let tracer_expr = opt
         .name_def
         .unwrap_or_else(|| syn::parse2(quote!(&*TRACE_NAME)).unwrap());
@@ -81,37 +80,29 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
     }
 }
 
-struct AwaitVisitor {
+struct AutoSpanVisitor {
     line_access: Option<LineAccess>,
     all_await: bool,
 }
 
-struct SqlxVisitor {
-    mutate: bool,
-}
-
-struct ReqwestVisitor {
-    mutate: bool,
-}
-
-impl AwaitVisitor {
-    fn new(line_access: Option<LineAccess>, all_await: bool) -> AwaitVisitor {
-        AwaitVisitor {
+impl AutoSpanVisitor {
+    fn new(line_access: Option<LineAccess>, all_await: bool) -> AutoSpanVisitor {
+        AutoSpanVisitor {
             line_access,
             all_await,
         }
     }
 
     fn handle_sqlx(&self, expr_await: &mut ExprAwait) -> bool {
-        let mut visitor = SqlxVisitor::new();
+        let mut visitor = handle_sqlx::SqlxVisitor::new();
         visitor.visit_expr_await_mut(expr_await);
-        visitor.mutate
+        visitor.is_mutate()
     }
 
     fn handle_reqwest(&self, expr_await: &mut ExprAwait) -> bool {
-        let mut visitor = ReqwestVisitor::new();
+        let mut visitor = handle_reqwest::ReqwestVisitor::new();
         visitor.visit_expr_await_mut(expr_await);
-        visitor.mutate
+        visitor.is_mutate()
     }
 
     fn get_line_info(&self, span: Span) -> Option<(i64, String)> {
@@ -119,7 +110,7 @@ impl AwaitVisitor {
     }
 }
 
-impl VisitMut for AwaitVisitor {
+impl VisitMut for AutoSpanVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
@@ -181,90 +172,5 @@ impl VisitMut for AwaitVisitor {
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
         };
-    }
-}
-
-impl SqlxVisitor {
-    fn new() -> SqlxVisitor {
-        SqlxVisitor { mutate: false }
-    }
-
-    fn try_sqlx(&self, call: &ExprCall) -> Option<Expr> {
-        if !is_sqlx_query(&call.func) {
-            return None;
-        }
-        if let Some(a) = call.args.first() {
-            match a {
-                Expr::Lit(_) | Expr::Path(_) => Some(a.clone()),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-}
-
-impl VisitMut for SqlxVisitor {
-    fn visit_expr_mut(&mut self, i: &mut Expr) {
-        let sql = match i {
-            Expr::Call(expr) => self.try_sqlx(expr),
-            Expr::Await(_) => return,
-            _ => None,
-        };
-        if let Some(sql) = sql {
-            let t = quote! {
-                {
-                    __span.set_attribute(opentelemetry::KeyValue::new("sql", #sql));
-                    #i
-                }
-            };
-            *i = syn::parse2(t).unwrap();
-            self.mutate = true;
-        } else {
-            syn::visit_mut::visit_expr_mut(self, i);
-        }
-    }
-}
-
-fn is_sqlx_query(func: &Expr) -> bool {
-    let query_functions = vec![
-        "query",
-        "query_as",
-        "query_as_with",
-        "query_scalar",
-        "query_scalar_with",
-        "query_with",
-    ];
-    match func {
-        Expr::Path(path) => path_match(&path.path, vec![vec!["sqlx"], query_functions]),
-        _ => false,
-    }
-}
-
-impl ReqwestVisitor {
-    fn new() -> ReqwestVisitor {
-        ReqwestVisitor { mutate: false }
-    }
-}
-
-impl VisitMut for ReqwestVisitor {
-    fn visit_expr_mut(&mut self, i: &mut Expr) {
-        let b = match i {
-            Expr::Call(expr) => is_reqwest(&expr.func),
-            Expr::Await(_) => return,
-            _ => false,
-        };
-        if b {
-            self.mutate = true;
-        } else {
-            syn::visit_mut::visit_expr_mut(self, i);
-        }
-    }
-}
-
-fn is_reqwest(func: &Expr) -> bool {
-    match func {
-        Expr::Path(path) => path_starts_with(&path.path, vec!["reqwest", "*"]),
-        _ => false,
     }
 }
