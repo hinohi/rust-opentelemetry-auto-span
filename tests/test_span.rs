@@ -21,6 +21,11 @@ fn g(x: i32) -> Result<i32, &'static str> {
 }
 
 #[auto_span]
+fn h(x: Option<i32>) -> Option<i32> {
+    Some(x? + 1)
+}
+
+#[auto_span]
 async fn test_sqlx() -> sqlx::Result<()> {
     use sqlx::Connection;
     let mut con = sqlx::sqlite::SqliteConnection::connect(":memory:").await?;
@@ -37,6 +42,7 @@ async fn main() {
 
     // call test target functions
     let _ = g(12);
+    let _ = h(Some(1));
     assert!(test_sqlx().await.is_ok());
 
     // check result
@@ -50,6 +56,12 @@ async fn main() {
         assert_eq!(data.name, "fn:g");
         assert_eq!(data.status_code, StatusCode::Error);
         assert_eq!(data.status_message.to_string(), "x is negative");
+    }
+    // h。Option<T>? に対しては map_err が挿入されて欲しくない
+    {
+        let data = &span_iter.next().unwrap().1;
+        assert_eq!(data.name, "fn:h");
+        assert_eq!(data.status_code, StatusCode::Unset);
     }
     // test_sqlx
     {

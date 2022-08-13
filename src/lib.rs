@@ -9,12 +9,10 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{
     parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
-    ExprAwait, ItemFn,
+    ExprAwait, ExprClosure, ExprTry, ItemFn, Signature,
 };
 
-use crate::{
-    attr_options::AttrVisitor, dig::find_source_path, line::LineAccess,
-};
+use crate::{attr_options::AttrVisitor, dig::find_source_path, line::LineAccess};
 
 #[proc_macro_attribute]
 pub fn auto_span(
@@ -35,7 +33,10 @@ pub fn auto_span(
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
-    AutoSpanVisitor::new(line_access, opt.all_await).visit_item_fn_mut(&mut input);
+    let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
+    visitor.push_fn_context(&input.sig);
+    visitor.visit_item_fn_mut(&mut input);
+
     let tracer_expr = opt
         .name_def
         .unwrap_or_else(|| syn::parse2(quote!(&*TRACE_NAME)).unwrap());
@@ -82,15 +83,57 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
 
 struct AutoSpanVisitor {
     line_access: Option<LineAccess>,
+    context: Vec<ReturnType>,
     all_await: bool,
+}
+
+#[derive(Copy, Clone)]
+enum ReturnType {
+    Unknown,
+    Result,
+    Option,
+    Other,
 }
 
 impl AutoSpanVisitor {
     fn new(line_access: Option<LineAccess>, all_await: bool) -> AutoSpanVisitor {
         AutoSpanVisitor {
             line_access,
+            context: Vec::new(),
             all_await,
         }
+    }
+
+    fn push_fn_context(&mut self, sig: &Signature) {
+        let rt = match &sig.output {
+            syn::ReturnType::Default => ReturnType::Other,
+            syn::ReturnType::Type(_, ty) => match ty.as_ref() {
+                syn::Type::Path(path) => {
+                    let name = path.path.segments.last().unwrap().ident.to_string();
+                    if name.contains("Result") {
+                        ReturnType::Result
+                    } else if name.contains("Option") {
+                        ReturnType::Option
+                    } else {
+                        ReturnType::Other
+                    }
+                }
+                _ => ReturnType::Unknown,
+            },
+        };
+        self.context.push(rt);
+    }
+
+    pub fn push_closure_context(&mut self) {
+        self.context.push(ReturnType::Unknown);
+    }
+
+    pub fn pop_context(&mut self) {
+        self.context.pop();
+    }
+
+    pub fn current_context(&self) -> ReturnType {
+        *self.context.last().unwrap()
     }
 
     fn handle_sqlx(&self, expr_await: &mut ExprAwait) -> bool {
@@ -111,6 +154,12 @@ impl AutoSpanVisitor {
 }
 
 impl VisitMut for AutoSpanVisitor {
+    fn visit_item_fn_mut(&mut self, i: &mut ItemFn) {
+        self.push_fn_context(&i.sig);
+        syn::visit_mut::visit_item_fn_mut(self, i);
+        self.pop_context();
+    }
+
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
@@ -151,10 +200,17 @@ impl VisitMut for AutoSpanVisitor {
                     }
                 }
             }
-            Expr::Try(expr) => {
-                syn::visit_mut::visit_expr_try_mut(self, expr);
+            _ => syn::visit_mut::visit_expr_mut(self, i),
+        };
+    }
 
-                let inner = expr.expr.as_ref();
+    fn visit_expr_try_mut(&mut self, i: &mut ExprTry) {
+        syn::visit_mut::visit_expr_try_mut(self, i);
+
+        let span = i.span().clone();
+        match self.current_context() {
+            ReturnType::Result => {
+                let inner = i.expr.as_ref();
                 let err = if let Some((line, code)) = self.get_line_info(span) {
                     quote! {format!("line {}, {}\n{}", #line, #code, e)}
                 } else {
@@ -163,14 +219,20 @@ impl VisitMut for AutoSpanVisitor {
                 let tokens = quote! {
                     __span.set_status(::opentelemetry::trace::StatusCode::Error, #err);
                 };
-                expr.expr = Box::new(
+                i.expr = Box::new(
                     syn::parse2(quote! {
                         #inner.map_err(|e| { #tokens; e })
                     })
                     .unwrap(),
                 );
             }
-            _ => syn::visit_mut::visit_expr_mut(self, i),
-        };
+            _ => (),
+        }
+    }
+
+    fn visit_expr_closure_mut(&mut self, i: &mut ExprClosure) {
+        self.push_closure_context();
+        syn::visit_mut::visit_expr_closure_mut(self, i);
+        self.pop_context();
     }
 }
