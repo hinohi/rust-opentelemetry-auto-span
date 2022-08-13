@@ -28,3 +28,13 @@ syn = { version = "1.0", features = ["full", "extra-traits", "visit-mut", "visit
 quote = "1.0"
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
 regex = "1"
+
+[dev-dependencies]
+opentelemetry = { version = "0.17", default-features = false, features = ["trace"] }
+
+tracing-test = { path = "tracing-test" }
+opentelemetry-auto-span = { path = "." }
+
+[[test]]
+name = "test_span"
+path = "tests/test_span.rs"

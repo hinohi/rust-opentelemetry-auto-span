@@ -105,3 +105,9 @@ impl Span for TestSpan {
         self.end();
     }
 }
+
+impl Drop for TestSpan {
+    fn drop(&mut self) {
+        self.end();
+    }
+}

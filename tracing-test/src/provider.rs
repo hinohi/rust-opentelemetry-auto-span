@@ -3,11 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use opentelemetry::{
-    trace::{
-        SpanContext, SpanId, TraceId, TraceResult, TracerProvider,
-    },
-};
+use opentelemetry::trace::{SpanContext, SpanId, TraceId, TraceResult, TracerProvider};
 
 use crate::{span::TestSpanData, tracer::TestTracer};
 
@@ -23,17 +19,19 @@ pub struct TestTracerProviderInner {
 }
 
 impl TestTracerProvider {
-    pub fn new() -> TestTracerProvider {
-        TestTracerProvider {
-            inner: Arc::new(Mutex::new(TestTracerProviderInner {
-                id: 1,
-                spans: Vec::new(),
-            })),
-        }
+    pub fn new(inner: Arc<Mutex<TestTracerProviderInner>>) -> TestTracerProvider {
+        TestTracerProvider { inner }
     }
 }
 
 impl TestTracerProviderInner {
+    pub fn new() -> TestTracerProviderInner {
+        TestTracerProviderInner {
+            id: 1,
+            spans: Vec::new(),
+        }
+    }
+
     pub fn new_span_id(&mut self) -> SpanId {
         let id = SpanId::from_bytes(self.id.to_ne_bytes());
         self.id += 1;
