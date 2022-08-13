@@ -30,7 +30,9 @@ proc-macro2 = { version = "1.0", features = ["span-locations"] }
 regex = "1"
 
 [dev-dependencies]
+actix-rt = "2.7"
 opentelemetry = { version = "0.17", default-features = false, features = ["trace"] }
+sqlx = { version = "0.6", default-features = false, features = ["macros", "runtime-actix-rustls", "sqlite"] }
 
 tracing-test = { path = "tracing-test" }
 opentelemetry-auto-span = { path = "." }
