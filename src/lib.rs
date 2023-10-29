@@ -1,31 +1,44 @@
-mod attr_options;
 mod dig;
 mod handle_reqwest;
 mod handle_sqlx;
 mod line;
 mod utils;
 
+use darling::ast::NestedMeta;
+use darling::{Error, FromMeta};
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{
-    parse_macro_input, spanned::Spanned, visit::Visit, visit_mut::VisitMut, AttributeArgs, Expr,
-    ExprAwait, ExprClosure, ExprTry, ItemFn, Signature,
+    parse_macro_input, spanned::Spanned, visit_mut::VisitMut, Expr, ExprAwait, ExprClosure,
+    ExprTry, ItemFn, Signature,
 };
 
-use crate::{attr_options::AttrVisitor, dig::find_source_path, line::LineAccess};
+use crate::{dig::find_source_path, line::LineAccess};
+
+#[derive(Default, FromMeta)]
+#[darling(default)]
+struct Opt {
+    pub all_await: bool,
+    pub debug: bool,
+    pub name_def: Option<Expr>,
+}
 
 #[proc_macro_attribute]
 pub fn auto_span(
     attr: proc_macro::TokenStream,
     item: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let opt = {
-        let attrs = parse_macro_input!(attr as AttributeArgs);
-        let mut visitor = AttrVisitor::new();
-        for attr in attrs.iter() {
-            visitor.visit_nested_meta(attr);
+    let attr_args = match NestedMeta::parse_meta_list(attr.into()) {
+        Ok(v) => v,
+        Err(e) => {
+            return proc_macro::TokenStream::from(Error::from(e).write_errors());
         }
-        visitor.opt
+    };
+    let opt = match Opt::from_list(&attr_args) {
+        Ok(v) => v,
+        Err(e) => {
+            return proc_macro::TokenStream::from(e.write_errors());
+        }
     };
 
     let mut input = parse_macro_input!(item as ItemFn);
@@ -33,13 +46,13 @@ pub fn auto_span(
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
-    let mut visitor = AutoSpanVisitor::new(line_access, opt.func_span, opt.all_await);
+    let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
     visitor.visit_item_fn_mut(&mut input);
 
     let tracer_expr = opt
         .name_def
         .unwrap_or_else(|| syn::parse2(quote!(&*TRACE_NAME)).unwrap());
-    insert_tracer(&mut input, opt.func_span, tracer_expr);
+    insert_tracer(&mut input, tracer_expr);
     let token = quote! {#input};
 
     if opt.debug {
@@ -55,22 +68,18 @@ pub fn auto_span(
     token.into()
 }
 
-fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
+fn insert_tracer(i: &mut ItemFn, tracer_expr: Expr) {
     let func_span_name = format!("fn:{}", i.sig.ident);
     let stmts = &i.block.stmts;
-    let mut tokens = quote! {
+    let tokens = quote! {
         #[allow(unused_imports)]
         use opentelemetry::trace::{Tracer, Span, TraceContextExt};
         let __tracer = opentelemetry::global::tracer(#tracer_expr);
+        let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
+        let __guard = __ctx.clone().attach();
+        let __span = __ctx.span();
+        #(#stmts)*
     };
-    if with_span {
-        tokens.extend(quote! {
-            let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
-            let __guard = __ctx.clone().attach();
-            let __span = __ctx.span();
-            #(#stmts)*
-        });
-    }
     let body: Expr = syn::parse2(quote! {{#tokens}}).unwrap();
     match body {
         Expr::Block(block) => {
@@ -83,7 +92,6 @@ fn insert_tracer(i: &mut ItemFn, with_span: bool, tracer_expr: Expr) {
 struct AutoSpanVisitor {
     line_access: Option<LineAccess>,
     context: Vec<ReturnTypeContext>,
-    func_span: bool,
     all_await: bool,
 }
 
@@ -95,11 +103,10 @@ enum ReturnTypeContext {
 }
 
 impl AutoSpanVisitor {
-    fn new(line_access: Option<LineAccess>, func_span: bool, all_await: bool) -> AutoSpanVisitor {
+    fn new(line_access: Option<LineAccess>, all_await: bool) -> AutoSpanVisitor {
         AutoSpanVisitor {
             line_access,
             context: Vec::new(),
-            func_span,
             all_await,
         }
     }
@@ -154,15 +161,6 @@ impl AutoSpanVisitor {
 }
 
 impl VisitMut for AutoSpanVisitor {
-    fn visit_item_fn_mut(&mut self, i: &mut ItemFn) {
-        self.push_fn_context(&i.sig);
-        if self.context.len() == 1 {
-            // skip inner function, because `span` is not shared
-            syn::visit_mut::visit_item_fn_mut(self, i);
-        }
-        self.pop_context();
-    }
-
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
@@ -207,12 +205,14 @@ impl VisitMut for AutoSpanVisitor {
         };
     }
 
+    fn visit_expr_closure_mut(&mut self, i: &mut ExprClosure) {
+        self.push_closure_context();
+        syn::visit_mut::visit_expr_closure_mut(self, i);
+        self.pop_context();
+    }
+
     fn visit_expr_try_mut(&mut self, i: &mut ExprTry) {
         syn::visit_mut::visit_expr_try_mut(self, i);
-
-        if !self.func_span {
-            return;
-        }
 
         match self.current_context() {
             ReturnTypeContext::Result => {
@@ -224,7 +224,7 @@ impl VisitMut for AutoSpanVisitor {
                     quote! {format!("{}", e)}
                 };
                 let tokens = quote! {
-                    __span.set_status(::opentelemetry::trace::StatusCode::Error, #err);
+                    __span.set_status(::opentelemetry::trace::Status::error(#err));
                 };
                 i.expr = Box::new(
                     syn::parse2(quote_spanned! {
@@ -237,9 +237,12 @@ impl VisitMut for AutoSpanVisitor {
         }
     }
 
-    fn visit_expr_closure_mut(&mut self, i: &mut ExprClosure) {
-        self.push_closure_context();
-        syn::visit_mut::visit_expr_closure_mut(self, i);
+    fn visit_item_fn_mut(&mut self, i: &mut ItemFn) {
+        self.push_fn_context(&i.sig);
+        if self.context.len() == 1 {
+            // skip inner function, because `span` is not shared
+            syn::visit_mut::visit_item_fn_mut(self, i);
+        }
         self.pop_context();
     }
 }

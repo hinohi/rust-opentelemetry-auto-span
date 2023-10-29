@@ -61,12 +61,12 @@ async fn get_user(
     Ok(HttpResponse::Ok().json(&user))
 }
 
-#[actix_web::main]
+#[tokio::main]
 async fn main() -> std::io::Result<()> {
     global::set_text_map_propagator(TraceContextPropagator::new());
-    let _tracer = opentelemetry_jaeger::new_pipeline()
+    let _tracer = opentelemetry_jaeger::new_agent_pipeline()
         .with_service_name(TRACE_NAME)
-        .with_agent_endpoint("127.0.0.1:6831")
+        .with_endpoint("127.0.0.1:6831")
         .install_batch(TokioCurrentThread)
         .expect("pipeline install error");
 

@@ -6,14 +6,15 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix-web = "4.1.0"
-opentelemetry = { version = "0.17", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
-opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio-current-thread"] }
+tokio = { version = "1.33.0", features = ["full"] }
+actix-web = "4.4.0"
+opentelemetry = { version = "0.20", default-features = false, features = ["trace", "rt-tokio-current-thread"] }
+opentelemetry-jaeger = { version = "0.19", features = ["rt-tokio-current-thread"] }
 reqwest = { version = "0.11", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
-sqlx = { version = "0.6", default-features = false, features = ["macros", "runtime-actix-rustls", "mysql"] }
+sqlx = { version = "0.7", default-features = false, features = ["macros", "runtime-tokio-rustls", "mysql"] }
 thiserror = "1.0"
 
-actix-web-opentelemetry = "0.13.0-alpha.1"
+actix-web-opentelemetry = "0.15.0"
 
 opentelemetry-auto-span = { path = "../.." }

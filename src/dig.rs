@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use quote::ToTokens;
-use syn::{Attribute, Item, ItemFn};
+use syn::{Attribute, Item, ItemFn, Meta};
 
 use crate::utils::path_match;
 
@@ -43,8 +43,10 @@ fn is_contain_target_func(path: &Path, name: &str, sig: &str) -> bool {
 
 fn strip_attrs(attrs: &[Attribute]) -> Option<Vec<Attribute>> {
     for (i, attr) in attrs.iter().enumerate() {
-        if path_match(&attr.path, "auto_span") {
-            return Some(attrs[i + 1..].to_vec());
+        if let Meta::Path(ref path) = attr.meta {
+            if path_match(path, "auto_span") {
+                return Some(attrs[i + 1..].to_vec());
+            }
         }
     }
     None

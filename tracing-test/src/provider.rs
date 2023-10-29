@@ -1,9 +1,9 @@
-use std::{
-    borrow::Cow,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
-use opentelemetry::trace::{SpanContext, SpanId, TraceId, TraceResult, TracerProvider};
+use opentelemetry::{
+    trace::{SpanContext, SpanId, TraceId, TracerProvider},
+    InstrumentationLibrary,
+};
 
 use crate::{span::TestSpanData, tracer::TestTracer};
 
@@ -48,16 +48,7 @@ impl TestTracerProviderInner {
 impl TracerProvider for TestTracerProvider {
     type Tracer = TestTracer;
 
-    fn versioned_tracer(
-        &self,
-        _name: impl Into<Cow<'static, str>>,
-        _version: Option<&'static str>,
-        _schema_url: Option<&'static str>,
-    ) -> Self::Tracer {
+    fn library_tracer(&self, _library: Arc<InstrumentationLibrary>) -> Self::Tracer {
         TestTracer::new(self.inner.clone())
-    }
-
-    fn force_flush(&self) -> Vec<TraceResult<()>> {
-        Vec::new()
     }
 }

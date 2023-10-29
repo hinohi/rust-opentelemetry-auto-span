@@ -122,5 +122,4 @@ fn my_func() {}
 |:--------------|:---------------------------------------------------------------------|
 | name/name_def | Tracer name token. `name` must be str, `name_def` parse as rust expr |
 | debug         | Dump the migrated code to ./target/auto_span or /tmp/auto_span       |
-| no_func_span  | Not generate function level span split                               |
 | all_await     | Generate span for all `await`                                        |

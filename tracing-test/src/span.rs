@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, time::SystemTime};
 
 use opentelemetry::{
-    trace::{Event, Span, SpanContext, StatusCode},
+    trace::{Event, Span, SpanContext, Status},
     KeyValue,
 };
 
@@ -19,8 +19,7 @@ pub struct TestSpanData {
     pub name: Cow<'static, str>,
     pub events: Vec<Event>,
     pub attributes: HashMap<opentelemetry::Key, opentelemetry::Value>,
-    pub status_code: StatusCode,
-    pub status_message: Cow<'static, str>,
+    pub status: Status,
 }
 
 impl TestSpan {
@@ -32,8 +31,7 @@ impl TestSpan {
             name: name.into(),
             events: Vec::new(),
             attributes: HashMap::new(),
-            status_code: StatusCode::Unset,
-            status_message: Cow::Borrowed(""),
+            status: Status::Unset,
         };
         TestSpan {
             span_context,
@@ -85,10 +83,9 @@ impl Span for TestSpan {
         self.with_data(|data| data.attributes.insert(attribute.key, attribute.value));
     }
 
-    fn set_status(&mut self, code: StatusCode, message: String) {
+    fn set_status(&mut self, status: Status) {
         self.with_data(|data| {
-            data.status_code = code;
-            data.status_message = Cow::Owned(message);
+            data.status = status;
         });
     }
 

@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-use opentelemetry::{global, trace::StatusCode, Key, Value};
+use opentelemetry::{global, trace::Status, Key, Value};
 use opentelemetry_auto_span::auto_span;
 use tracing_test::{TestTracerProvider, TestTracerProviderInner};
 
 const TRACE_NAME: &str = "test_test";
 
-#[auto_span]
+#[auto_span(debug)]
 fn f(x: i32) -> Result<i32, &'static str> {
     if x < 0 {
         Err("x is negative")
@@ -37,7 +37,7 @@ async fn test_sqlx() -> sqlx::Result<()> {
     Ok(())
 }
 
-#[actix_rt::test]
+#[tokio::test]
 async fn main() {
     // setup
     let inner = Arc::new(Mutex::new(TestTracerProviderInner::new()));
@@ -58,20 +58,18 @@ async fn main() {
     {
         let data = &span_iter.next().unwrap().1;
         assert_eq!(data.name, "fn:g");
-        assert_eq!(data.status_code, StatusCode::Error);
-        assert_eq!(data.status_message.to_string(), "x is negative");
+        assert_eq!(data.status, Status::error("x is negative"));
     }
     // h
     {
         let data = &span_iter.next().unwrap().1;
         assert_eq!(data.name, "fn:in_h");
-        assert_eq!(data.status_code, StatusCode::Error);
-        assert_eq!(data.status_message.to_string(), "in_h err");
+        assert_eq!(data.status, Status::error("in_h err"));
     }
     {
         let data = &span_iter.next().unwrap().1;
         assert_eq!(data.name, "fn:h");
-        assert_eq!(data.status_code, StatusCode::Unset);
+        assert_eq!(data.status, Status::Unset);
     }
     // test_sqlx
     {
