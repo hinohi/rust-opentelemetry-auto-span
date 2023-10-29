@@ -214,26 +214,23 @@ impl VisitMut for AutoSpanVisitor {
     fn visit_expr_try_mut(&mut self, i: &mut ExprTry) {
         syn::visit_mut::visit_expr_try_mut(self, i);
 
-        match self.current_context() {
-            ReturnTypeContext::Result => {
-                let span = i.expr.span();
-                let inner = i.expr.as_ref();
-                let err = if let Some((line, code)) = self.get_line_info(span) {
-                    quote! {format!("line {}, {}\n{}", #line, #code, e)}
-                } else {
-                    quote! {format!("{}", e)}
-                };
-                let tokens = quote! {
-                    __span.set_status(::opentelemetry::trace::Status::error(#err));
-                };
-                i.expr = Box::new(
-                    syn::parse2(quote_spanned! {
-                        span => #inner.map_err(|e| { #tokens e })
-                    })
-                    .unwrap(),
-                );
-            }
-            _ => (),
+        if let ReturnTypeContext::Result = self.current_context() {
+            let span = i.expr.span();
+            let inner = i.expr.as_ref();
+            let err = if let Some((line, code)) = self.get_line_info(span) {
+                quote! {format!("line {}, {}\n{}", #line, #code, e)}
+            } else {
+                quote! {format!("{}", e)}
+            };
+            let tokens = quote! {
+                __span.set_status(::opentelemetry::trace::Status::error(#err));
+            };
+            i.expr = Box::new(
+                syn::parse2(quote_spanned! {
+                    span => #inner.map_err(|e| { #tokens e })
+                })
+                .unwrap(),
+            );
         }
     }
 

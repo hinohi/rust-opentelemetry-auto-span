@@ -44,7 +44,7 @@ impl LineAccess {
         LineAccess {
             lines,
             // example: #39 bytes(890..902)
-            span_pat: Regex::new(r#"^#\d+ bytes\((\d+)\.\.\d+\)"#).unwrap(),
+            span_pat: Regex::new(r"^#\d+ bytes\((\d+)\.\.\d+\)").unwrap(),
         }
     }
 
