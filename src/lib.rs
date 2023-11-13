@@ -69,11 +69,11 @@ fn insert_tracer(i: &mut ItemFn) {
     let stmts = &i.block.stmts;
     let tokens = quote! {
         #[allow(unused_imports)]
-        use opentelemetry::trace::{Tracer, Span, TraceContextExt};
-        let __tracer = opentelemetry::global::tracer("");
-        let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
-        let __guard = __ctx.clone().attach();
-        let __span = __ctx.span();
+        use opentelemetry::trace::{Tracer as _, Span as _, TraceContextExt as _};
+        let __otel_auto_tracer = opentelemetry::global::tracer("");
+        let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start(#func_span_name));
+        let __otel_auto_guard = __otel_auto_ctx.clone().attach();
+        let __otel_auto_span = __otel_auto_ctx.span();
         #(#stmts)*
     };
     let body: Expr = syn::parse2(quote! {{#tokens}}).unwrap();
@@ -159,8 +159,8 @@ impl AutoSpanVisitor {
 fn add_line_info(tokens: &mut TokenStream, line_info: Option<(i64, String)>) {
     if let Some((lineno, line)) = line_info {
         tokens.extend(quote! {
-            __span.set_attribute(opentelemetry::KeyValue::new("code.lineno", #lineno));
-            __span.set_attribute(opentelemetry::KeyValue::new("code.line", #line));
+            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("code.lineno", #lineno));
+            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("code.line", #line));
         });
     }
 }
@@ -171,9 +171,9 @@ impl VisitMut for AutoSpanVisitor {
 
         let new_span = |name, line_info, expr| {
             let mut tokens = quote! {
-                let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
-                let __guard = __ctx.clone().attach();
-                let __span = __ctx.span();
+                let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start(#name));
+                let __otel_auto_guard = __otel_auto_ctx.clone().attach();
+                let __otel_auto_span = __otel_auto_ctx.span();
             };
             add_line_info(&mut tokens, line_info);
             let tokens = quote_spanned! {
@@ -215,7 +215,7 @@ impl VisitMut for AutoSpanVisitor {
             let span = i.expr.span();
             let inner = i.expr.as_ref();
             let mut tokens = quote! {
-                __span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
+                __otel_auto_span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
             };
             add_line_info(&mut tokens, self.get_line_info(span));
             i.expr = Box::new(

@@ -41,7 +41,7 @@ impl VisitMut for SqlxVisitor {
         if let Some(sql) = sql {
             let t = quote! {
                 {
-                    __span.set_attribute(opentelemetry::KeyValue::new("db.statement", #sql));
+                    __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("db.statement", #sql));
                     #i
                 }
             };
