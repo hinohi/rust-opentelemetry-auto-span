@@ -57,9 +57,9 @@ where
     F: FnMut(&Path) -> bool,
 {
     if path.is_dir() {
-        let dir = unwrap_or_return!(path.read_dir(), None);
+        let dir = path.read_dir().ok()?;
         for entry in dir {
-            let path = unwrap_or_return!(entry, None).path();
+            let path = entry.ok()?.path();
             if let Some(path) = walk(&path, task) {
                 return Some(path);
             }
