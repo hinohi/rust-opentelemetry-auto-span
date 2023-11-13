@@ -8,7 +8,7 @@ add dependencies
 
 ```toml
 [dependencies]
-opentelemetry-auto-span = "0.2"
+opentelemetry-auto-span = "0.3"
 ```
 
 annotate function
