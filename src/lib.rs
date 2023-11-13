@@ -160,25 +160,26 @@ impl AutoSpanVisitor {
     }
 }
 
+fn add_line_info(tokens: &mut TokenStream, line_info: Option<(i64, String)>) {
+    if let Some((lineno, line)) = line_info {
+        tokens.extend(quote! {
+            __span.set_attribute(opentelemetry::KeyValue::new("code.lineno", #lineno));
+            __span.set_attribute(opentelemetry::KeyValue::new("code.line", #line));
+        });
+    }
+}
+
 impl VisitMut for AutoSpanVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
-        let add_line_info = |tokens: &mut TokenStream, line| {
-            if let Some((line, code)) = line {
-                tokens.extend(quote! {
-                    __span.set_attribute(opentelemetry::KeyValue::new("aut_span.line", #line));
-                    __span.set_attribute(opentelemetry::KeyValue::new("aut_span.code", #code));
-                });
-            }
-        };
-        let new_span = |name, line, expr| {
+        let new_span = |name, line_info, expr| {
             let mut tokens = quote! {
                 let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#name));
                 let __guard = __ctx.clone().attach();
                 let __span = __ctx.span();
             };
-            add_line_info(&mut tokens, line);
+            add_line_info(&mut tokens, line_info);
             let tokens = quote_spanned! {
                 span => {
                     #tokens
@@ -217,14 +218,10 @@ impl VisitMut for AutoSpanVisitor {
         if let ReturnTypeContext::Result = self.current_context() {
             let span = i.expr.span();
             let inner = i.expr.as_ref();
-            let err = if let Some((line, code)) = self.get_line_info(span) {
-                quote! {format!("line {}, {}\n{}", #line, #code, e)}
-            } else {
-                quote! {format!("{}", e)}
+            let mut tokens = quote! {
+                __span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
             };
-            let tokens = quote! {
-                __span.set_status(::opentelemetry::trace::Status::error(#err));
-            };
+            add_line_info(&mut tokens, self.get_line_info(span));
             i.expr = Box::new(
                 syn::parse2(quote_spanned! {
                     span => #inner.map_err(|e| { #tokens e })

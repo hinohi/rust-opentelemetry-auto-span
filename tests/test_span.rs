@@ -6,7 +6,7 @@ use tracing_test::{TestTracerProvider, TestTracerProviderInner};
 
 const TRACE_NAME: &str = "test_test";
 
-#[auto_span(debug)]
+#[auto_span]
 fn f(x: i32) -> Result<i32, &'static str> {
     if x < 0 {
         Err("x is negative")
@@ -76,7 +76,7 @@ async fn main() {
         let data = &span_iter.next().unwrap().1;
         assert_eq!(data.name, "db"); // TODO: line 対応したら直す
         assert_eq!(
-            data.attributes.get(&Key::new("sql")).unwrap(),
+            data.attributes.get(&Key::new("db.statement")).unwrap(),
             &Value::from("SELECT 1"),
         );
     }

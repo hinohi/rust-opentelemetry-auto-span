@@ -1,12 +1,7 @@
-
 use quote::quote;
-use syn::{
-    visit_mut::VisitMut, Expr, ExprCall,
-};
+use syn::{visit_mut::VisitMut, Expr, ExprCall};
 
-use crate::{
-    utils::{path_match},
-};
+use crate::utils::path_match;
 
 pub struct SqlxVisitor {
     mutate: bool,
@@ -46,7 +41,7 @@ impl VisitMut for SqlxVisitor {
         if let Some(sql) = sql {
             let t = quote! {
                 {
-                    __span.set_attribute(opentelemetry::KeyValue::new("sql", #sql));
+                    __span.set_attribute(opentelemetry::KeyValue::new("db.statement", #sql));
                     #i
                 }
             };
