@@ -62,49 +62,32 @@ async fn get_user(
     db: web::Data<sqlx::MySqlPool>,
 ) -> actix_web::Result<HttpResponse, Error> {
     #[allow(unused_imports)]
-    use opentelemetry::trace::{Span, TraceContextExt, Tracer};
-    // make tracer
-    // tracer name can customize like `#[auto_span(name_def="get_name()")]`
-    // Default name `&*TRACE_NAME` is intended to be defined in `lazy_static!`
-    let __tracer = opentelemetry::global::tracer(&*TRACE_NAME);
-    // start function level span
-    let __ctx = opentelemetry::Context::current_with_span(__tracer.start("fn:get_user"));
-    let __guard = __ctx.clone().attach();
-    let __span = __ctx.span();
-
+    use opentelemetry::trace::{Span as _, TraceContextExt as _, Tracer as _};
+    let __otel_auto_tracer = opentelemetry::global::tracer("");
+    let __otel_auto_ctx =
+        opentelemetry::Context::current_with_span(__otel_auto_tracer.start("fn:get_user"));
+    let __otel_auto_guard = __otel_auto_ctx.clone().attach();
+    let __otel_auto_span = __otel_auto_ctx.span();
     let user: User = {
-        // start sqlx `.await` span
-        let __ctx = opentelemetry::Context::current_with_span(__tracer.start("db"));
-        let __guard = __ctx.clone().attach();
-        let __span = __ctx.span();
-        __span.set_attribute(opentelemetry::KeyValue::new("aut_span.line", 57i64));
-        __span.set_attribute(opentelemetry::KeyValue::new(
-            "aut_span.code",
-            "let user: User = sqlx::query_as(\"SELECT * FROM users WHERE id = ?\")",
-        ));
+        let __otel_auto_ctx =
+            opentelemetry::Context::current_with_span(__otel_auto_tracer.start("db"));
+        let __otel_auto_guard = __otel_auto_ctx.clone().attach();
+        let __otel_auto_span = __otel_auto_ctx.span();
         {
-            // capture SQL string
-            __span.set_attribute(opentelemetry::KeyValue::new(
-                "sql",
+            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new(
+                "db.statement",
                 "SELECT * FROM users WHERE id = ?",
             ));
             sqlx::query_as("SELECT * FROM users WHERE id = ?")
         }
-            .bind(id.into_inner().0)
-            .fetch_one(&**db)
-            .await
+        .bind(id.into_inner().0)
+        .fetch_one(&**db)
+        .await
     }
-        // logging error
-        .map_err(|e| {
-            __span.set_status(
-                ::opentelemetry::trace::StatusCode::Error,
-                format!(
-                    "line {}, {}\n{}",
-                    57i64, "let user: User = sqlx::query_as(\"SELECT * FROM users WHERE id = ?\")", e
-                ),
-            );
-            e
-        })?;
+    .map_err(|e| {
+        __otel_auto_span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
+        e
+    })?;
     Ok(HttpResponse::Ok().json(&user))
 }
 ```
@@ -118,8 +101,7 @@ usage:
 fn my_func() {}
 ```
 
-| name          | action                                                               |
-|:--------------|:---------------------------------------------------------------------|
-| name/name_def | Tracer name token. `name` must be str, `name_def` parse as rust expr |
-| debug         | Dump the migrated code to ./target/auto_span or /tmp/auto_span       |
-| all_await     | Generate span for all `await`                                        |
+| name          | action                                                         |
+|:--------------|:---------------------------------------------------------------|
+| debug         | Dump the migrated code to ./target/auto_span or /tmp/auto_span |
+| all_await     | Generate span for all `await`                                  |
