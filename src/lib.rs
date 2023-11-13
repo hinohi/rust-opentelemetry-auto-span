@@ -20,7 +20,6 @@ use crate::{dig::find_source_path, line::LineAccess};
 struct Opt {
     pub all_await: bool,
     pub debug: bool,
-    pub name_def: Option<Expr>,
 }
 
 #[proc_macro_attribute]
@@ -49,10 +48,7 @@ pub fn auto_span(
     let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
     visitor.visit_item_fn_mut(&mut input);
 
-    let tracer_expr = opt
-        .name_def
-        .unwrap_or_else(|| syn::parse2(quote!(&*TRACE_NAME)).unwrap());
-    insert_tracer(&mut input, tracer_expr);
+    insert_tracer(&mut input);
     let token = quote! {#input};
 
     if opt.debug {
@@ -68,13 +64,13 @@ pub fn auto_span(
     token.into()
 }
 
-fn insert_tracer(i: &mut ItemFn, tracer_expr: Expr) {
+fn insert_tracer(i: &mut ItemFn) {
     let func_span_name = format!("fn:{}", i.sig.ident);
     let stmts = &i.block.stmts;
     let tokens = quote! {
         #[allow(unused_imports)]
         use opentelemetry::trace::{Tracer, Span, TraceContextExt};
-        let __tracer = opentelemetry::global::tracer(#tracer_expr);
+        let __tracer = opentelemetry::global::tracer("");
         let __ctx = opentelemetry::Context::current_with_span(__tracer.start(#func_span_name));
         let __guard = __ctx.clone().attach();
         let __span = __ctx.span();

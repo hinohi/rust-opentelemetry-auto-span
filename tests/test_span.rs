@@ -4,8 +4,6 @@ use opentelemetry::{global, trace::Status, Key, Value};
 use opentelemetry_auto_span::auto_span;
 use tracing_test::{TestTracerProvider, TestTracerProviderInner};
 
-const TRACE_NAME: &str = "test_test";
-
 #[auto_span]
 fn f(x: i32) -> Result<i32, &'static str> {
     if x < 0 {
