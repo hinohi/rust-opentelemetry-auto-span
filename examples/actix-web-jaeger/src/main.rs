@@ -8,8 +8,6 @@ use opentelemetry::{
 use opentelemetry_auto_span::auto_span;
 use serde::Serialize;
 
-const TRACE_NAME: &str = "auto-span-sample";
-
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("SQLx error: {0}")]
@@ -35,9 +33,6 @@ impl ResponseError for Error {
 #[auto_span]
 #[get("/")]
 async fn hello() -> impl Responder {
-    let ctx = opentelemetry::Context::current_with_span(__tracer.start(TRACE_NAME));
-    let _guard = ctx.clone().attach();
-    let _span = ctx.span();
     HttpResponse::Ok().body("Hello world!")
 }
 
@@ -65,7 +60,7 @@ async fn get_user(
 async fn main() -> std::io::Result<()> {
     global::set_text_map_propagator(TraceContextPropagator::new());
     let _tracer = opentelemetry_jaeger::new_agent_pipeline()
-        .with_service_name(TRACE_NAME)
+        .with_service_name("auto-span-actix-web-example")
         .with_endpoint("127.0.0.1:6831")
         .install_batch(TokioCurrentThread)
         .expect("pipeline install error");
