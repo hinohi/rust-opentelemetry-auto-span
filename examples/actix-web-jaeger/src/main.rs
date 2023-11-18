@@ -19,6 +19,10 @@ enum Error {
 }
 
 impl ResponseError for Error {
+    fn status_code(&self) -> StatusCode {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+
     fn error_response(&self) -> HttpResponse {
         #[derive(Debug, Serialize)]
         struct FailureResult {
@@ -27,10 +31,6 @@ impl ResponseError for Error {
         HttpResponse::build(self.status_code()).json(FailureResult {
             message: format!("{}", self),
         })
-    }
-
-    fn status_code(&self) -> StatusCode {
-        StatusCode::INTERNAL_SERVER_ERROR
     }
 }
 
