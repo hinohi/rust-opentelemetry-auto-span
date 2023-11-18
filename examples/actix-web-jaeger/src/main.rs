@@ -12,6 +12,10 @@ use serde::Serialize;
 enum Error {
     #[error("SQLx error: {0}")]
     Sqlx(#[from] sqlx::Error),
+    #[error("awc error: {0}")]
+    AwcSendRequestError(#[from] awc::error::SendRequestError),
+    #[error("awc error: {0}")]
+    AwcPayloadError(#[from] awc::error::PayloadError),
 }
 
 impl ResponseError for Error {
@@ -56,6 +60,15 @@ async fn get_user(
     Ok(HttpResponse::Ok().json(&user))
 }
 
+#[get("/awc")]
+#[auto_span(all_await)]
+async fn use_awc() -> actix_web::Result<HttpResponse, Error> {
+    let client = awc::Client::default();
+    let req = client.get("http://localhost:8081");
+    let mut res = req.send().await?;
+    Ok(HttpResponse::Ok().body(res.body().await?))
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     global::set_text_map_propagator(TraceContextPropagator::new());
@@ -83,6 +96,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             .service(hello)
             .service(get_user)
+            .service(use_awc)
     })
     .bind(("127.0.0.1", 8081))?
     .run()
