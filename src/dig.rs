@@ -32,10 +32,13 @@ fn is_contain_target_func(file: File, name: &str, sig: &str) -> bool {
 
 fn strip_attrs(attrs: &[Attribute]) -> Option<Vec<Attribute>> {
     for (i, attr) in attrs.iter().enumerate() {
-        if let Meta::Path(ref path) = attr.meta {
-            if path_match(path, "auto_span") {
-                return Some(attrs[i + 1..].to_vec());
-            }
+        let is_auto_span = match &attr.meta {
+            Meta::Path(path) => path_match(path, "auto_span"),
+            Meta::List(lis) => path_match(&lis.path, "auto_span"),
+            Meta::NameValue(_) => false,
+        };
+        if is_auto_span {
+            return Some(attrs[i + 1..].to_vec());
         }
     }
     None
@@ -89,5 +92,19 @@ pub fn a() -> &'static str {
             &func_item.sig.ident.to_string(),
             &sig
         ))
+    }
+
+    #[test]
+    fn strip_attrs_no_option() {
+        let target_func = r#"#[auto_span] pub fn a() -> &'static str { "hello" }"#;
+        let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
+        assert!(strip_attrs(&func_item.attrs).unwrap().is_empty());
+    }
+
+    #[test]
+    fn strip_attrs_with_option() {
+        let target_func = r#"#[auto_span(debug)] pub fn a() -> &'static str { "hello" }"#;
+        let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
+        assert!(strip_attrs(&func_item.attrs).unwrap().is_empty());
     }
 }

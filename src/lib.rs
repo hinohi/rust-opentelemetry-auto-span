@@ -7,7 +7,7 @@ mod utils;
 use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned};
+use quote::{quote, quote_spanned, ToTokens};
 use syn::{
     parse_macro_input, spanned::Spanned, visit_mut::VisitMut, Expr, ExprAwait, ExprClosure,
     ExprTry, ItemFn, Signature,
@@ -44,6 +44,11 @@ pub fn auto_span(
 
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
+    std::fs::write(
+        "/tmp/src",
+        format!("{:?}\n{}", dir, input.to_token_stream().to_string()),
+    )
+    .unwrap();
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
     let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
     visitor.visit_item_fn_mut(&mut input);
