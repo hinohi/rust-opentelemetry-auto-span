@@ -1,5 +1,4 @@
 mod dig;
-mod handle_reqwest;
 mod handle_sqlx;
 mod line;
 mod utils;
@@ -7,7 +6,7 @@ mod utils;
 use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote, quote_spanned};
 use syn::{
     parse_macro_input, spanned::Spanned, visit_mut::VisitMut, Expr, ExprAwait, ExprClosure,
     ExprTry, ItemFn, Signature,
@@ -44,11 +43,6 @@ pub fn auto_span(
 
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
-    std::fs::write(
-        "/tmp/src",
-        format!("{:?}\n{}", dir, input.to_token_stream().to_string()),
-    )
-    .unwrap();
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
     let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
     visitor.visit_item_fn_mut(&mut input);
@@ -150,12 +144,6 @@ impl AutoSpanVisitor {
         visitor.is_mutate()
     }
 
-    fn handle_reqwest(&self, expr_await: &mut ExprAwait) -> bool {
-        let mut visitor = handle_reqwest::ReqwestVisitor::new();
-        visitor.visit_expr_await_mut(expr_await);
-        visitor.is_mutate()
-    }
-
     fn get_line_info(&self, span: Span) -> Option<(i64, String)> {
         self.line_access.as_ref().and_then(|la| la.span(span))
     }
@@ -194,8 +182,6 @@ impl VisitMut for AutoSpanVisitor {
             Expr::Await(expr) => {
                 if self.handle_sqlx(expr) {
                     *i = new_span("db", self.get_line_info(span), expr);
-                } else if self.handle_reqwest(expr) {
-                    *i = new_span("http", self.get_line_info(span), expr);
                 } else {
                     syn::visit_mut::visit_expr_await_mut(self, expr);
                     if self.all_await {

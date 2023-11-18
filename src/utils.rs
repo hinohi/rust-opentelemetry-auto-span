@@ -23,25 +23,6 @@ pub(crate) fn path_match<P: Into<PathPat>>(path: &Path, pat: P) -> bool {
     }
 }
 
-pub(crate) fn path_starts_with<P: Into<PathPat>>(path: &Path, pat: P) -> bool {
-    let pat = pat.into();
-    let mut seg = path.segments.iter();
-    let mut pat = pat.segments.iter();
-    loop {
-        let s = seg.next();
-        let p = pat.next();
-        match (s, p) {
-            (None, None) | (Some(_), None) => break true,
-            (None, Some(_)) => break false,
-            (Some(s), Some(p)) => {
-                if !p.iter().any(|p| p == "*" || s.ident == p) {
-                    break false;
-                }
-            }
-        }
-    }
-}
-
 impl From<&str> for PathPat {
     fn from(s: &str) -> Self {
         PathPat {
@@ -96,22 +77,5 @@ mod tests {
         assert!(path_match(&p("a"), vec![vec!["a"]]));
         assert!(path_match(&p("a"), vec![vec!["a", "b"]]));
         assert!(!path_match(&p("a"), vec![vec!["b", "c"]]));
-    }
-
-    #[test]
-    fn test_path_starts_with() {
-        assert!(path_starts_with(&p("a"), "a"));
-        assert!(!path_starts_with(&p("a"), "b"));
-        assert!(path_starts_with(&p("a"), "*"));
-        assert!(path_starts_with(&p("a::b"), "a"));
-        assert!(!path_starts_with(&p("a::b"), "b"));
-        assert!(path_starts_with(&p("a::b"), vec!["a", "b"]));
-        assert!(path_starts_with(&p("a::b"), vec!["a", "*"]));
-        assert!(!path_starts_with(&p("a"), vec!["a", "*"]));
-        assert!(path_starts_with(
-            &p("a::b::c"),
-            vec![vec!["a"], vec!["b", "bb"]]
-        ));
-        assert!(!path_starts_with(&p("a::b::c"), vec![vec!["a"], vec!["c"]]));
     }
 }
