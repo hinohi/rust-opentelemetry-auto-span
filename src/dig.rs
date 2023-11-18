@@ -1,30 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use quote::ToTokens;
-use syn::{Attribute, Item, ItemFn, Meta};
+use syn::{Attribute, File, Item, ItemFn, Meta};
 
 use crate::utils::path_match;
-
-macro_rules! unwrap_or_return {
-    ($expr:expr, $ret:expr) => {
-        match $expr {
-            Ok(inner) => inner,
-            Err(_) => return $ret,
-        }
-    };
-}
 
 pub fn find_source_path<P: AsRef<Path>>(root: P, func: &ItemFn) -> Option<PathBuf> {
     let name = func.sig.ident.to_string();
     let sig = func.to_token_stream().to_string();
-    walk(root.as_ref(), &mut |path| {
-        is_contain_target_func(path, &name, &sig)
+    walk(root.as_ref(), &mut |file| {
+        is_contain_target_func(file, &name, &sig)
     })
 }
 
-fn is_contain_target_func(path: &Path, name: &str, sig: &str) -> bool {
-    let content = unwrap_or_return!(std::fs::read_to_string(path), false);
-    let file = unwrap_or_return!(syn::parse_file(&content), false);
+fn is_contain_target_func(file: File, name: &str, sig: &str) -> bool {
     for item in file.items {
         if let Item::Fn(mut func) = item {
             if func.sig.ident != name {
@@ -54,7 +43,7 @@ fn strip_attrs(attrs: &[Attribute]) -> Option<Vec<Attribute>> {
 
 fn walk<F>(path: &Path, task: &mut F) -> Option<PathBuf>
 where
-    F: FnMut(&Path) -> bool,
+    F: FnMut(File) -> bool,
 {
     if path.is_dir() {
         let dir = path.read_dir().ok()?;
@@ -64,8 +53,41 @@ where
                 return Some(path);
             }
         }
-    } else if path.extension().and_then(|ex| ex.to_str()) == Some("rs") && task(path) {
-        return Some(path.to_path_buf());
+    } else if path.extension().and_then(|ex| ex.to_str()) == Some("rs") {
+        let content = std::fs::read_to_string(path).ok()?;
+        let file = syn::parse_file(&content).ok()?;
+        if task(file) {
+            return Some(path.to_path_buf());
+        }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_contain_target_func() {
+        let target_func = r#"#[get("/")] pub fn a() -> &'static str { "hello" }"#;
+        let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
+        let sig = func_item.to_token_stream().to_string();
+
+        let target_file = r#"
+use actix_web::get;
+
+fn b() -> i32 { 1 }
+
+#[auto_span]
+#[get("/")]
+pub fn a() -> &'static str {
+    "hello"
+}
+"#;
+        assert!(is_contain_target_func(
+            syn::parse_file(target_file).unwrap(),
+            &func_item.sig.ident.to_string(),
+            &sig
+        ))
+    }
 }
