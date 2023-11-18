@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use opentelemetry::{global, trace::Status, Key, Value};
 use opentelemetry_auto_span::auto_span;
-use tracing_test::{TestTracerProvider, TestTracerProviderInner};
+use otel_test_helper::{TestTracerProvider, TestTracerProviderInner};
 
 #[auto_span]
 fn f(x: i32) -> Result<i32, &'static str> {

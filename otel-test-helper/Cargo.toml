@@ -1,5 +1,5 @@
 [package]
-name = "tracing-test"
+name = "otel-test-helper"
 version = "0.1.0"
 edition = "2021"
 

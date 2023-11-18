@@ -1,7 +1,7 @@
 [workspace]
 members = [
     ".",
-    "tracing-test",
+    "otel-test-helper",
     "examples/actix-web-jaeger",
 ]
 
@@ -35,7 +35,7 @@ tokio = { version = "1", features = ["test-util", "macros"] }
 opentelemetry = { version = "0.20", default-features = false, features = ["trace"] }
 sqlx = { version = "0.7", default-features = false, features = ["macros", "runtime-tokio-rustls", "sqlite"] }
 
-tracing-test = { path = "tracing-test" }
+otel-test-helper = { path = "otel-test-helper" }
 opentelemetry-auto-span = { path = "." }
 
 [[test]]
