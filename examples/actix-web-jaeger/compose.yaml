@@ -17,5 +17,5 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "6831:6831/udp"
+      - "4317:4317"
       - "16686:16686"

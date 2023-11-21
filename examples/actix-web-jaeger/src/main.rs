@@ -1,10 +1,6 @@
 use actix_web::{
     get, http::StatusCode, web, App, HttpResponse, HttpServer, Responder, ResponseError,
 };
-use actix_web_opentelemetry::RequestTracing;
-use opentelemetry::{
-    global, runtime::TokioCurrentThread, sdk::propagation::TraceContextPropagator,
-};
 use opentelemetry_auto_span::auto_span;
 use serde::Serialize;
 
@@ -48,7 +44,7 @@ struct User {
 }
 
 #[get("/user/{id}")]
-#[auto_span(debug)]
+#[auto_span]
 async fn get_user(
     id: web::Path<(i64,)>,
     db: web::Data<sqlx::MySqlPool>,
@@ -71,11 +67,25 @@ async fn use_awc() -> actix_web::Result<HttpResponse, Error> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    global::set_text_map_propagator(TraceContextPropagator::new());
-    let _tracer = opentelemetry_jaeger::new_agent_pipeline()
-        .with_service_name("auto-span-actix-web-example")
-        .with_endpoint("127.0.0.1:6831")
-        .install_batch(TokioCurrentThread)
+    use opentelemetry::KeyValue;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
+
+    // init tracer: also see https://github.com/open-telemetry/opentelemetry-rust/tree/main/examples/tracing-jaeger
+    opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint("http://localhost:4317"),
+        )
+        .with_trace_config(
+            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
+                "service.name",
+                "auto-span-actix-web-example",
+            )])),
+        )
+        .install_batch(runtime::Tokio)
         .expect("pipeline install error");
 
     let mysql_config = sqlx::mysql::MySqlConnectOptions::new()
@@ -92,7 +102,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            .wrap(RequestTracing::new())
+            .wrap(actix_web_opentelemetry::RequestTracing::new())
             .app_data(web::Data::new(pool.clone()))
             .service(hello)
             .service(get_user)
