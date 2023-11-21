@@ -81,6 +81,8 @@ use actix_web::get;
 
 fn b() -> i32 { 1 }
 
+/// do a
+/// this is comment
 #[auto_span]
 #[get("/")]
 pub fn a() -> &'static str {
@@ -96,7 +98,12 @@ pub fn a() -> &'static str {
 
     #[test]
     fn strip_attrs_no_option() {
-        let target_func = r#"#[auto_span] pub fn a() -> &'static str { "hello" }"#;
+        let target_func = r#"
+/// document
+#[auto_span]
+pub fn a() -> &'static str {
+    "hello"
+}"#;
         let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
         assert!(strip_attrs(&func_item.attrs).unwrap().is_empty());
     }
