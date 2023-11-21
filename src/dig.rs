@@ -1,47 +1,36 @@
 use std::path::{Path, PathBuf};
 
-use quote::ToTokens;
 use syn::{Attribute, File, Item, ItemFn, Meta};
 
 use crate::utils::path_match;
 
 pub fn find_source_path<P: AsRef<Path>>(root: P, func: &ItemFn) -> Option<PathBuf> {
     let name = func.sig.ident.to_string();
-    let sig = func.to_token_stream().to_string();
     walk(root.as_ref(), &mut |file| {
-        is_contain_target_func(file, &name, &sig)
+        is_contain_target_func(file, &name)
     })
 }
 
-fn is_contain_target_func(file: File, name: &str, sig: &str) -> bool {
+fn is_contain_target_func(file: File, name: &str) -> bool {
     for item in file.items {
-        if let Item::Fn(mut func) = item {
+        if let Item::Fn(ref func) = item {
             if func.sig.ident != name {
                 continue;
             }
-            if let Some(attrs) = strip_attrs(&func.attrs) {
-                func.attrs = attrs;
-                if func.to_token_stream().to_string() == sig {
-                    return true;
-                }
+            if has_auto_span_attrs(&func.attrs) {
+                return true;
             }
         }
     }
     false
 }
 
-fn strip_attrs(attrs: &[Attribute]) -> Option<Vec<Attribute>> {
-    for (i, attr) in attrs.iter().enumerate() {
-        let is_auto_span = match &attr.meta {
-            Meta::Path(path) => path_match(path, "auto_span"),
-            Meta::List(lis) => path_match(&lis.path, "auto_span"),
-            Meta::NameValue(_) => false,
-        };
-        if is_auto_span {
-            return Some(attrs[i + 1..].to_vec());
-        }
-    }
-    None
+fn has_auto_span_attrs(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| match &attr.meta {
+        Meta::Path(path) => path_match(path, "auto_span"),
+        Meta::List(lis) => path_match(&lis.path, "auto_span"),
+        Meta::NameValue(_) => false,
+    })
 }
 
 fn walk<F>(path: &Path, task: &mut F) -> Option<PathBuf>
@@ -72,10 +61,6 @@ mod tests {
 
     #[test]
     fn test_is_contain_target_func() {
-        let target_func = r#"#[get("/")] pub fn a() -> &'static str { "hello" }"#;
-        let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
-        let sig = func_item.to_token_stream().to_string();
-
         let target_file = r#"
 use actix_web::get;
 
@@ -91,13 +76,12 @@ pub fn a() -> &'static str {
 "#;
         assert!(is_contain_target_func(
             syn::parse_file(target_file).unwrap(),
-            &func_item.sig.ident.to_string(),
-            &sig
-        ))
+            "a",
+        ));
     }
 
     #[test]
-    fn strip_attrs_no_option() {
+    fn has_attrs_no_option() {
         let target_func = r#"
 /// document
 #[auto_span]
@@ -105,13 +89,13 @@ pub fn a() -> &'static str {
     "hello"
 }"#;
         let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
-        assert!(strip_attrs(&func_item.attrs).unwrap().is_empty());
+        assert!(has_auto_span_attrs(&func_item.attrs));
     }
 
     #[test]
     fn strip_attrs_with_option() {
         let target_func = r#"#[auto_span(debug)] pub fn a() -> &'static str { "hello" }"#;
         let func_item = syn::parse_str::<ItemFn>(target_func).unwrap();
-        assert!(strip_attrs(&func_item.attrs).unwrap().is_empty());
+        assert!(has_auto_span_attrs(&func_item.attrs));
     }
 }
