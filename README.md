@@ -63,16 +63,21 @@ async fn get_user(
 ) -> actix_web::Result<HttpResponse, Error> {
     #[allow(unused_imports)]
     use opentelemetry::trace::{Span as _, TraceContextExt as _, Tracer as _};
+    
     let __otel_auto_tracer = opentelemetry::global::tracer("");
-    let __otel_auto_ctx =
-        opentelemetry::Context::current_with_span(__otel_auto_tracer.start("fn:get_user"));
+    let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start("fn:get_user"));
     let __otel_auto_guard = __otel_auto_ctx.clone().attach();
     let __otel_auto_span = __otel_auto_ctx.span();
+    
     let user: User = {
-        let __otel_auto_ctx =
-            opentelemetry::Context::current_with_span(__otel_auto_tracer.start("db"));
+        let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start("db"));
         let __otel_auto_guard = __otel_auto_ctx.clone().attach();
         let __otel_auto_span = __otel_auto_ctx.span();
+        __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("code.lineno", 52i64));
+        __otel_auto_span.set_attribute(opentelemetry::KeyValue::new(
+            "code.line",
+            "let user: User = sqlx::query_as(\"SELECT * FROM users WHERE id = ?\")",
+        ));
         {
             __otel_auto_span.set_attribute(opentelemetry::KeyValue::new(
                 "db.statement",
@@ -80,16 +85,22 @@ async fn get_user(
             ));
             sqlx::query_as("SELECT * FROM users WHERE id = ?")
         }
-        .bind(id.into_inner().0)
-        .fetch_one(&**db)
-        .await
+            .bind(id.into_inner().0)
+            .fetch_one(&**db)
+            .await
     }
-    .map_err(|e| {
-        __otel_auto_span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
-        e
-    })?;
+        .map_err(|e| {
+            __otel_auto_span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
+            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("code.lineno", 52i64));
+            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new(
+                "code.line",
+                "let user: User = sqlx::query_as(\"SELECT * FROM users WHERE id = ?\")",
+            ));
+            e
+        })?;
     Ok(HttpResponse::Ok().json(&user))
 }
+
 ```
 
 ## Option
