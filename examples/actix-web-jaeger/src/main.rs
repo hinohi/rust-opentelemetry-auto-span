@@ -4,6 +4,54 @@ use actix_web::{
 use opentelemetry_auto_span::auto_span;
 use serde::Serialize;
 
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    use opentelemetry::KeyValue;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
+
+    // init tracer: also see https://github.com/open-telemetry/opentelemetry-rust/tree/main/examples/tracing-jaeger
+    opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint("http://localhost:4317"),
+        )
+        .with_trace_config(
+            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
+                "service.name",
+                "auto-span-actix-web-example",
+            )])),
+        )
+        .install_batch(runtime::Tokio)
+        .expect("pipeline install error");
+
+    let mysql_config = sqlx::mysql::MySqlConnectOptions::new()
+        .host("127.0.0.1")
+        .username("root")
+        .password("actix-otel-auto-span")
+        .database("sample")
+        .port(3306);
+    let pool = sqlx::mysql::MySqlPoolOptions::new()
+        .max_connections(10)
+        .connect_with(mysql_config)
+        .await
+        .expect("failed to connect mysql db");
+
+    HttpServer::new(move || {
+        App::new()
+            .wrap(actix_web_opentelemetry::RequestTracing::new())
+            .app_data(web::Data::new(pool.clone()))
+            .service(hello)
+            .service(get_user)
+            .service(use_awc)
+    })
+    .bind(("127.0.0.1", 8081))?
+    .run()
+    .await
+}
+
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("SQLx error: {0}")]
@@ -63,52 +111,4 @@ async fn use_awc() -> actix_web::Result<HttpResponse, Error> {
     let req = client.get("http://localhost:8081");
     let mut res = req.send().await?;
     Ok(HttpResponse::Ok().body(res.body().await?))
-}
-
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
-    use opentelemetry::KeyValue;
-    use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
-
-    // init tracer: also see https://github.com/open-telemetry/opentelemetry-rust/tree/main/examples/tracing-jaeger
-    opentelemetry_otlp::new_pipeline()
-        .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter()
-                .tonic()
-                .with_endpoint("http://localhost:4317"),
-        )
-        .with_trace_config(
-            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
-                "service.name",
-                "auto-span-actix-web-example",
-            )])),
-        )
-        .install_batch(runtime::Tokio)
-        .expect("pipeline install error");
-
-    let mysql_config = sqlx::mysql::MySqlConnectOptions::new()
-        .host("127.0.0.1")
-        .username("root")
-        .password("actix-otel-auto-span")
-        .database("sample")
-        .port(3306);
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(10)
-        .connect_with(mysql_config)
-        .await
-        .expect("failed to connect mysql db");
-
-    HttpServer::new(move || {
-        App::new()
-            .wrap(actix_web_opentelemetry::RequestTracing::new())
-            .app_data(web::Data::new(pool.clone()))
-            .service(hello)
-            .service(get_user)
-            .service(use_awc)
-    })
-    .bind(("127.0.0.1", 8081))?
-    .run()
-    .await
 }
