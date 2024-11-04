@@ -13,8 +13,9 @@
 3. access
 
     ```sh
-    curl 'http://localhost:8081/' 
-    curl 'http://localhost:8081/user/1' 
-    curl 'http://localhost:8081/user/10' 
+    curl 'http://localhost:8081/'
+    curl 'http://localhost:8081/user/1'
+    curl 'http://localhost:8081/user/10'
+    curl 'http://localhost:8081/awc'
     ```
 4. Open http://localhost:16686
