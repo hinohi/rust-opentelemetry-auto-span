@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     ".",
     "otel-test-helper",
@@ -29,7 +30,7 @@ quote = "1.0"
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
 darling = "0.20"
 regex = "1"
-opentelemetry = { version = "0.20", default-features = false, features = ["trace"] }
+opentelemetry = { version = "0.26", default-features = false, features = ["trace"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros"] }

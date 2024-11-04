@@ -9,9 +9,10 @@ async fn main() -> std::io::Result<()> {
     use opentelemetry::KeyValue;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
+    use opentelemetry_semantic_conventions::resource::SERVICE_NAME;
 
     // init tracer: also see https://github.com/open-telemetry/opentelemetry-rust/tree/main/examples/tracing-jaeger
-    opentelemetry_otlp::new_pipeline()
+    let tracer_provider = opentelemetry_otlp::new_pipeline()
         .tracing()
         .with_exporter(
             opentelemetry_otlp::new_exporter()
@@ -19,13 +20,14 @@ async fn main() -> std::io::Result<()> {
                 .with_endpoint("http://localhost:4317"),
         )
         .with_trace_config(
-            sdktrace::config().with_resource(Resource::new(vec![KeyValue::new(
-                "service.name",
+            sdktrace::Config::default().with_resource(Resource::new(vec![KeyValue::new(
+                SERVICE_NAME,
                 "auto-span-actix-web-example",
             )])),
         )
         .install_batch(runtime::Tokio)
         .expect("pipeline install error");
+    opentelemetry::global::set_tracer_provider(tracer_provider);
 
     let mysql_config = sqlx::mysql::MySqlConnectOptions::new()
         .host("127.0.0.1")
