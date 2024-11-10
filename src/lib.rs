@@ -5,7 +5,7 @@ mod utils;
 
 use darling::ast::NestedMeta;
 use darling::{Error, FromMeta};
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, quote_spanned};
 use syn::{
     parse_macro_input, spanned::Spanned, visit_mut::VisitMut, Expr, ExprAwait, ExprClosure,
@@ -17,7 +17,6 @@ use crate::{dig::find_source_path, line::LineAccess};
 #[derive(Default, FromMeta)]
 #[darling(default)]
 struct Opt {
-    pub all_await: bool,
     pub debug: bool,
 }
 
@@ -44,10 +43,10 @@ pub fn auto_span(
     let mut dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     dir.push("src");
     let line_access = find_source_path(dir, &input).map(LineAccess::new);
-    let mut visitor = AutoSpanVisitor::new(line_access, opt.all_await);
+    let mut visitor = AutoSpanVisitor::new(line_access);
     visitor.visit_item_fn_mut(&mut input);
 
-    insert_tracer(&mut input);
+    insert_function_span(&mut input);
     let token = quote! {#input};
 
     if opt.debug {
@@ -63,17 +62,33 @@ pub fn auto_span(
     token.into()
 }
 
-fn insert_tracer(i: &mut ItemFn) {
-    let func_span_name = format!("fn:{}", i.sig.ident);
+fn insert_function_span(i: &mut ItemFn) {
+    let def_tracer = quote! {
+        let __otel_auto_tracer = ::opentelemetry::global::tracer("");
+    };
+    let span_ident = Ident::new("span", Span::call_site());
+    let start_tracer = otel_start_tracer_token(&format!("fn:{}", i.sig.ident));
+    let ctx = otel_ctx_token(&span_ident);
     let stmts = &i.block.stmts;
-    let tokens = quote! {
-        #[allow(unused_imports)]
-        use opentelemetry::trace::{Tracer as _, Span as _, TraceContextExt as _};
-        let __otel_auto_tracer = opentelemetry::global::tracer("");
-        let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start(#func_span_name));
-        let __otel_auto_guard = __otel_auto_ctx.clone().attach();
-        let __otel_auto_span = __otel_auto_ctx.span();
-        #(#stmts)*
+    let tokens = if i.sig.asyncness.is_some() {
+        quote! {
+            #def_tracer
+            ::opentelemetry::trace::FutureExt::with_context(
+                async {#(#stmts)*},
+                {
+                    let #span_ident = #start_tracer;
+                    #ctx
+                }
+            ).await
+        }
+    } else {
+        quote! {
+            #def_tracer
+            let #span_ident = #start_tracer;
+            let __otel_auto_ctx = #ctx;
+            let __otel_auto_guard = __otel_auto_ctx.clone().attach();
+            #(#stmts)*
+        }
     };
     let body: Expr = syn::parse2(quote! {{#tokens}}).unwrap();
     match body {
@@ -84,10 +99,21 @@ fn insert_tracer(i: &mut ItemFn) {
     }
 }
 
+fn otel_start_tracer_token(name: &str) -> TokenStream {
+    quote! {
+        ::opentelemetry::trace::Tracer::start(&__otel_auto_tracer, #name)
+    }
+}
+
+fn otel_ctx_token(span_ident: &Ident) -> TokenStream {
+    quote! {
+        <::opentelemetry::Context as ::opentelemetry::trace::TraceContextExt>::current_with_span(#span_ident)
+    }
+}
+
 struct AutoSpanVisitor {
     line_access: Option<LineAccess>,
     context: Vec<ReturnTypeContext>,
-    all_await: bool,
 }
 
 #[derive(Copy, Clone)]
@@ -98,11 +124,10 @@ enum ReturnTypeContext {
 }
 
 impl AutoSpanVisitor {
-    fn new(line_access: Option<LineAccess>, all_await: bool) -> AutoSpanVisitor {
+    fn new(line_access: Option<LineAccess>) -> AutoSpanVisitor {
         AutoSpanVisitor {
             line_access,
             context: Vec::new(),
-            all_await,
         }
     }
 
@@ -147,13 +172,17 @@ impl AutoSpanVisitor {
     fn get_line_info(&self, span: Span) -> Option<(i64, String)> {
         self.line_access.as_ref().and_then(|la| la.span(span))
     }
+
+    fn span_ident(&self) -> Ident {
+        Ident::new("__otel_auto_span", Span::call_site())
+    }
 }
 
-fn add_line_info(tokens: &mut TokenStream, line_info: Option<(i64, String)>) {
+fn add_line_info(tokens: &mut TokenStream, span_ident: &Ident, line_info: Option<(i64, String)>) {
     if let Some((lineno, line)) = line_info {
         tokens.extend(quote! {
-            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("code.lineno", #lineno));
-            __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("code.line", #line));
+            #span_ident.set_attribute(::opentelemetry::KeyValue::new("code.lineno", #lineno));
+            #span_ident.set_attribute(::opentelemetry::KeyValue::new("code.line", #line));
         });
     }
 }
@@ -162,17 +191,26 @@ impl VisitMut for AutoSpanVisitor {
     fn visit_expr_mut(&mut self, i: &mut Expr) {
         let span = i.span();
 
+        let span_ident = self.span_ident();
         let new_span = |name, line_info, expr| {
+            let start_tracer = otel_start_tracer_token(name);
+            let current_with_span = otel_ctx_token(&span_ident);
             let mut tokens = quote! {
-                let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start(#name));
-                let __otel_auto_guard = __otel_auto_ctx.clone().attach();
-                let __otel_auto_span = __otel_auto_ctx.span();
+                #[allow(unused_import)]
+                use ::opentelemetry::trace::{Span as _};
+                #[allow(unused_mut)]
+                let mut #span_ident = #start_tracer;
             };
-            add_line_info(&mut tokens, line_info);
+            add_line_info(&mut tokens, &span_ident, line_info);
             let tokens = quote_spanned! {
                 span => {
-                    #tokens
-                    #expr
+                    ::opentelemetry::trace::FutureExt::with_context(
+                        async { #expr },
+                        {
+                            #tokens
+                            #current_with_span
+                        }
+                    ).await
                 }
             };
             syn::parse2(tokens).unwrap()
@@ -184,9 +222,6 @@ impl VisitMut for AutoSpanVisitor {
                     *i = new_span("db", self.get_line_info(span), expr);
                 } else {
                     syn::visit_mut::visit_expr_await_mut(self, expr);
-                    if self.all_await {
-                        *i = new_span("await", self.get_line_info(span), expr);
-                    }
                 }
             }
             _ => syn::visit_mut::visit_expr_mut(self, i),
@@ -203,15 +238,21 @@ impl VisitMut for AutoSpanVisitor {
         syn::visit_mut::visit_expr_try_mut(self, i);
 
         if let ReturnTypeContext::Result = self.current_context() {
+            let span_ident = self.span_ident();
             let span = i.expr.span();
             let inner = i.expr.as_ref();
             let mut tokens = quote! {
-                __otel_auto_span.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
+                #span_ident.set_status(::opentelemetry::trace::Status::error(format!("{}", e)));
             };
-            add_line_info(&mut tokens, self.get_line_info(span));
+            add_line_info(&mut tokens, &span_ident, self.get_line_info(span));
             i.expr = Box::new(
                 syn::parse2(quote_spanned! {
-                    span => #inner.map_err(|e| { #tokens e })
+                    span => #inner.map_err(|e| {
+                        ::opentelemetry::trace::get_active_span(|__otel_auto_span| {
+                            #tokens
+                        });
+                        e
+                    })
                 })
                 .unwrap(),
             );

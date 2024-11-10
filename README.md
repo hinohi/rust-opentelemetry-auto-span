@@ -63,12 +63,12 @@ async fn get_user(
 ) -> actix_web::Result<HttpResponse, Error> {
     #[allow(unused_imports)]
     use opentelemetry::trace::{Span as _, TraceContextExt as _, Tracer as _};
-    
+
     let __otel_auto_tracer = opentelemetry::global::tracer("");
     let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start("fn:get_user"));
     let __otel_auto_guard = __otel_auto_ctx.clone().attach();
     let __otel_auto_span = __otel_auto_ctx.span();
-    
+
     let user: User = {
         let __otel_auto_ctx = opentelemetry::Context::current_with_span(__otel_auto_tracer.start("db"));
         let __otel_auto_guard = __otel_auto_ctx.clone().attach();
@@ -112,7 +112,6 @@ usage:
 fn my_func() {}
 ```
 
-| name          | action                                                         |
-|:--------------|:---------------------------------------------------------------|
-| debug         | Dump the migrated code to ./target/auto_span or /tmp/auto_span |
-| all_await     | Generate span for all `await`                                  |
+| name  | action                                                         |
+|:------|:---------------------------------------------------------------|
+| debug | Dump the migrated code to ./target/auto_span or /tmp/auto_span |

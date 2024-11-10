@@ -4,6 +4,7 @@ members = [
     ".",
     "otel-test-helper",
     "examples/actix-web-jaeger",
+    "examples/axum-jaeger",
 ]
 
 [package]

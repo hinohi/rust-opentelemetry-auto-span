@@ -20,13 +20,10 @@ impl SqlxVisitor {
         if !is_sqlx_query(&call.func) {
             return None;
         }
-        if let Some(a) = call.args.first() {
-            match a {
-                Expr::Lit(_) | Expr::Path(_) => Some(a.clone()),
-                _ => None,
-            }
-        } else {
-            None
+        let a = call.args.first()?;
+        match a {
+            Expr::Lit(_) | Expr::Path(_) => Some(a.clone()),
+            _ => None,
         }
     }
 }
@@ -41,7 +38,9 @@ impl VisitMut for SqlxVisitor {
         if let Some(sql) = sql {
             let t = quote! {
                 {
-                    __otel_auto_span.set_attribute(opentelemetry::KeyValue::new("db.statement", #sql));
+                    ::opentelemetry::trace::get_active_span(|span| {
+                        span.set_attribute(::opentelemetry::KeyValue::new("db.statement", #sql));
+                    });
                     #i
                 }
             };
@@ -61,6 +60,7 @@ fn is_sqlx_query(func: &Expr) -> bool {
         "query_scalar",
         "query_scalar_with",
         "query_with",
+        "raw_sql",
     ];
     match func {
         Expr::Path(path) => path_match(&path.path, vec![vec!["sqlx"], query_functions]),
