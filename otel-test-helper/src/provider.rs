@@ -45,6 +45,12 @@ impl TestTracerProviderInner {
     }
 }
 
+impl Default for TestTracerProviderInner {
+    fn default() -> TestTracerProviderInner {
+        TestTracerProviderInner::new()
+    }
+}
+
 impl TracerProvider for TestTracerProvider {
     type Tracer = TestTracer;
 

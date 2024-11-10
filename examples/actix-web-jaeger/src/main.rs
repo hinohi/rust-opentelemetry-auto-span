@@ -59,9 +59,9 @@ enum Error {
     #[error("SQLx error: {0}")]
     Sqlx(#[from] sqlx::Error),
     #[error("awc error: {0}")]
-    AwcSendRequestError(#[from] awc::error::SendRequestError),
+    AwcSendRequest(#[from] awc::error::SendRequestError),
     #[error("awc error: {0}")]
-    AwcPayloadError(#[from] awc::error::PayloadError),
+    AwcPayload(#[from] awc::error::PayloadError),
 }
 
 impl ResponseError for Error {
