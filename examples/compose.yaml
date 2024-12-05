@@ -13,9 +13,10 @@ services:
 
   jaeger:
     platform: linux/x86_64
-    image: jaegertracing/all-in-one:latest
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+    image: jaegertracing/jaeger:2.0.0
+    command:
+      - --set
+      - receivers.otlp.protocols.grpc.endpoint=0.0.0.0:4317
     ports:
       - "4317:4317"
       - "16686:16686"

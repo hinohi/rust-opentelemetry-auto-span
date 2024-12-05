@@ -6,8 +6,7 @@ use axum::{
 use opentelemetry_auto_span::auto_span;
 use serde::Serialize;
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+fn init_jaeger() {
     use opentelemetry::KeyValue;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::{runtime, trace as sdktrace, Resource};
@@ -30,7 +29,11 @@ async fn main() -> std::io::Result<()> {
         .install_batch(runtime::Tokio)
         .expect("pipeline install error");
     opentelemetry::global::set_tracer_provider(tracer_provider);
+}
 
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    init_jaeger();
     let mysql_config = sqlx::mysql::MySqlConnectOptions::new()
         .host("127.0.0.1")
         .username("root")
@@ -46,6 +49,7 @@ async fn main() -> std::io::Result<()> {
     let app = Router::new()
         .route("/", get(hello))
         .route("/user/:id", get(get_user))
+        .route("/users", get(get_users))
         .with_state(pool);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
     axum::serve(listener, app).await
@@ -102,4 +106,28 @@ async fn get_user(
         .fetch_one(&db)
         .await?;
     Ok(Json(user))
+}
+
+#[auto_span]
+async fn load_user(db: &sqlx::MySqlPool, id: i64) -> Result<User, Error> {
+    let user = sqlx::query_as("SELECT * FROM users WHERE id = ?")
+        .bind(id)
+        .fetch_one(db)
+        .await?;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    Ok(user)
+}
+
+#[auto_span]
+async fn get_users(State(db): State<sqlx::MySqlPool>) -> Result<Json<Vec<User>>, Error> {
+    //　intentionally　N+1 Query
+    let ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM users")
+        .fetch_all(&db)
+        .await?;
+    let mut users = Vec::new();
+    for (id,) in ids {
+        let user = load_user(&db, id).await?;
+        users.push(user);
+    }
+    Ok(Json(users))
 }
